@@ -44,6 +44,7 @@ npm run fetch      # descargar datos de Jotform
 npm run generate   # generar site/
 npm run build      # fetch + generate
 npm run serve      # http://localhost:8080
+npm run export-supabase  # genera data/respuestas_hh.sql + .csv para Supabase
 ```
 
 ## Funcionalidad replicada (importante)
@@ -89,11 +90,20 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) para importarlos después a **Supabase** (con RLS = solo visibles para el dueño).
 - Tras cada `npm run generate`, hacer `git add -A && git commit && git push` para actualizar Pages (tarda ~1 min en rebuild).
 
+## Base de datos Supabase (22/10)
+
+- Proyecto Supabase: `Encuesta_UsoDelAgua.UNL` (ref `dnyhvtpgdjyqlpoprtlc`, us-east-1).
+- Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). **137 filas** cargadas y verificadas (avg huella_diaria 355,27; 134/137 con huella).
+- **RLS activa sin políticas**: la publishable/anon key no puede leer nada; los datos solo se ven desde el dashboard (service role). «Solo el dueño».
+- Carga: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor (truncate + insert, idempotente). La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
+- `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
+- `data/` es gitignore completo → SQL/CSV/nunca van al repo ni a Pages.
+
 ## Pendientes / posibles mejoras
 
 - [x] ~~Feedback visual del usuario~~ — hecho el 19/10 (colores, marca de agua, sliders, botones).
 - [ ] Quitar `scripts/check-output.mjs` y `scripts/check-calcs.mjs` si ya no se necesitan (son tools de desarrollo).
-- [ ] Evaluar publicación: ¿dónde hostear? Proteger `respuestas.html` (quitarla con `"showResponsesPage": false` si es público).
+- [x] ~~Evaluar publicación~~ — hecho 22/10: GitHub Pages en https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/ sin respuestas (404 verificado).
 - [ ] `data/site-config.json` no creado; crear solo si el usuario quiere cambiar modo/colores.
 - [ ] Posible: cachear fetch sin re-descargar todo (ahora `npm run fetch` baja las 137 respuestas cada vez).
 - [ ] El formulario original tiene `thanktext` (página de agradecimiento Jotform) — se embebe en modo `demo`; en modo `jotform` Jotform muestra la suya propia.
