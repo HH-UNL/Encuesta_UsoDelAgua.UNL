@@ -81,6 +81,14 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - ⚠️ `respuestas.html` contiene **datos personales** de 137 personas — riesgo si se publica.
 - Config por defecto de generación: `submitMode: "jotform"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
 
+## Despliegue (22/10)
+
+- Repo: **https://github.com/HH-UNL/Encuesta_UsoDelAgua.UNL** (público, branch `main`).
+- GitHub Pages habilitado desde la **raíz** (`/`); `index.html` en la raíz redirige a `site/` (Pages solo sirve `/` o `/docs`).
+- **URL pública: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/** → redirige a `/site/`.
+- **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) para importarlos después a **Supabase** (con RLS = solo visibles para el dueño).
+- Tras cada `npm run generate`, hacer `git add -A && git commit && git push` para actualizar Pages (tarda ~1 min en rebuild).
+
 ## Pendientes / posibles mejoras
 
 - [x] ~~Feedback visual del usuario~~ — hecho el 19/10 (colores, marca de agua, sliders, botones).
