@@ -9,6 +9,7 @@
     "generate": "node scripts/generate-site.mjs",
     "build": "node scripts/fetch-jotform.mjs && node scripts/generate-site.mjs",
     "export-supabase": "node scripts/export-supabase.mjs",
+    "dashboard": "node scripts/build-dashboard.mjs",
     "serve": "node scripts/serve.mjs"
   },
   "engines": {

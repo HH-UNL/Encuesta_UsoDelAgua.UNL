@@ -45,6 +45,7 @@ npm run generate   # generar site/
 npm run build      # fetch + generate
 npm run serve      # http://localhost:8080
 npm run export-supabase  # genera data/respuestas_hh.sql + .csv para Supabase
+npm run dashboard     # genera dashboard/index.html (KPIs + gráficos + tabla)
 ```
 
 ## Funcionalidad replicada (importante)
@@ -87,7 +88,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Repo: **https://github.com/HH-UNL/Encuesta_UsoDelAgua.UNL** (público, branch `main`).
 - GitHub Pages habilitado desde la **raíz** (`/`); `index.html` en la raíz redirige a `site/` (Pages solo sirve `/` o `/docs`).
 - **URL pública: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/** → redirige a `/site/`.
-- **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) para importarlos después a **Supabase** (con RLS = solo visibles para el dueño).
+- **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) para importarlos después a **Supabase** (con RLS = solo visibles para el dueño). *Excepción 22/10: la tabla individual sí se publica en `/dashboard/` por decisión explícita del usuario (ver sección Dashboard).*
 - Tras cada `npm run generate`, hacer `git add -A && git commit && git push` para actualizar Pages (tarda ~1 min en rebuild).
 
 ## Base de datos Supabase (22/10)
@@ -98,6 +99,18 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Carga: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor (truncate + insert, idempotente). La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
 - `data/` es gitignore completo → SQL/CSV/nunca van al repo ni a Pages.
+
+## Dashboard público (22/10)
+
+- **URL: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/dashboard/** — **sin contraseña** (decisión explícita del usuario; primero se planteó gate con contraseña y se descartó).
+- Generador: `npm run dashboard` (`scripts/build-dashboard.mjs`) → escribe **`dashboard/index.html`** (HTML único autocontenido, se commitea y Pages lo sirve desde la raíz).
+- Mapping qid→columna ahora **compartido** en `scripts/columns.mjs` (lo importan `export-supabase.mjs` y `build-dashboard.mjs`).
+- Contenido: KPIs (total, rango de fechas, huella diaria/mensual, % con huella, horas/día) · distribución por perfil (unidad, género, vínculo, días/semana) · hábitos (inodoro, mingitorio, dispenser, mate/té, café, copias/mes, comedor % + veces/semana) · **tabla** con buscador, filtros por unidad/género/vínculo, paginación (25/pág) y export CSV.
+- **NO incluye** IP, `status` ni submission id (grep verificado contra el HTML generado). Usa `meta robots noindex` y no está enlazada desde la home.
+- Estilos heredados de `site/styles.css` (link `../site/styles.css`) — requiere `npm run generate` previo; datos de ejemplo: 137 respuestas, huella promedio 355,27 L/día (n=134).
+- `scripts/serve.mjs` ahora sirve además `/dashboard/` y el alias `/site/*` (rutas locales iguales a Pages).
+- ⚠️ La **tabla individual de respuestas queda pública** para cualquiera con la URL (decisión del usuario del 22/10; `site/respuestas.html` sigue fuera de Pages).
+- Regenerar tras cada `npm run fetch`; commit + push para actualizar Pages (~1 min rebuild).
 
 ## Pendientes / posibles mejoras
 

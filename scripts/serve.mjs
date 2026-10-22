@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Servidor estático mínimo para previsualizar site/
+ * Servidor estático mínimo para previsualizar site/ y dashboard/
  * Uso: node scripts/serve.mjs [puerto]
+ *   /            → site/index.html
+ *   /site/*      → site/* (alias, igual que en Pages)
+ *   /dashboard/  → dashboard/index.html
  */
 
 import http from 'node:http';
@@ -32,8 +35,16 @@ if (!fs.existsSync(SITE)) {
 http
   .createServer((req, res) => {
     const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    let file = path.join(SITE, url === '/' ? 'index.html' : url);
-    if (!file.startsWith(SITE)) {
+    const isDash = url === '/dashboard' || url.startsWith('/dashboard/');
+    const isSite = url === '/site' || url.startsWith('/site/');
+    const base = isDash ? path.join(ROOT, 'dashboard') : SITE;
+    const rel = isDash
+      ? url.slice('/dashboard'.length)
+      : isSite
+        ? url.slice('/site'.length)
+        : url;
+    let file = path.join(base, rel === '/' || rel === '' ? 'index.html' : rel);
+    if (!file.startsWith(base)) {
       res.writeHead(403).end('Prohibido');
       return;
     }
