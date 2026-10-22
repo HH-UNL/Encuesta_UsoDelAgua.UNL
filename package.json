@@ -1,0 +1,16 @@
+{
+  "name": "encuesta-hh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Extrae estructura y respuestas de un formulario Jotform y genera una web estática equivalente",
+  "scripts": {
+    "fetch": "node scripts/fetch-jotform.mjs",
+    "generate": "node scripts/generate-site.mjs",
+    "build": "node scripts/fetch-jotform.mjs && node scripts/generate-site.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
