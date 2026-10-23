@@ -31,7 +31,7 @@ Jotform API → scripts/fetch-jotform.mjs → data/*.json → scripts/generate-s
 | `scripts/fetch-jotform.mjs` | Descarga detalles, preguntas, propiedades, cálculos, condiciones y todas las respuestas (paginado, 100/página). Normaliza a `data/form-structure.json` + `data/submissions.json`; crudos en `data/raw/` |
 | `scripts/generate-site.mjs` | Genera `site/` (index.html, styles.css, app.js, respuestas.html/js, datos/) |
 | `templates/styles.css`, `templates/app.js` | Plantillas base copiadas a `site/` con tokens (`__ACCENT__`) |
-| `docs/HuellaHidrica.png` | Imagen original del footprint (1.3 MB, fondo negro) — **la que se usa**: el generador la copia a `site/assets/HuellaHidrica.png` y sirve de marca de agua (`body::before`, opacidad 0.8, tamaño `min(950px, 110vw)`) |
+| `docs/HuellaHidrica.png` | Imagen original del footprint (1.3 MB, fondo negro) — **la que se usa**: el generador la copia a `site/assets/HuellaHidrica.png` y sirve de marca de agua (`body::before`, opacidad 0.8, tamaño `auto 100vh` — el alto llena la pantalla y el ancho escala por proporción) |
 | `docs/HuellaHidrica-mark.png` | Versión 800 px con fondo transparente (452 KB) — generada el 19/10 pero **no en uso** (queda como fallback si falta el original) |
 | `scripts/serve.mjs` | Servidor estático mínimo (puerto 8080 por defecto) |
 | `scripts/check-calcs.mjs` | Verifica ecuaciones contra respuestas históricas |
@@ -71,7 +71,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 ## Estado actual
 
 - ✅ Pipeline completo funcionando con datos reales; web generada en `site/` (index ~30 KB, respuestas ~41 KB).
-- ✅ Rediseño visual (19/10, iterado con el usuario): fondo **#009bb4** (cambiado el 22/10; antes #005875 → #00a3ad → #097cc0), texto principal **#005875** (secundarios teal al 62%), títulos/badge/pie en blanco sobre el fondo oscuro; marca de agua del footprint (imagen original) fija al **0.8** de opacidad y `min(950px,110vw)`; tarjeta blanca con sombra en capas, botones y progreso con degradado del accent; sliders en q16/q18; «Atrás» solo abajo; «Enviar» solo en la última. Plantilla: `templates/styles.css` + `templates/app.js` + `scripts/generate-site.mjs`; el asset se copia en cada `npm run generate`.
+- ✅ Rediseño visual (19/10, iterado con el usuario): fondo **#009bb4** (cambiado el 22/10; antes #005875 → #00a3ad → #097cc0), texto principal **#005875** (secundarios teal al 62%), títulos/badge/pie en blanco sobre el fondo oscuro; marca de agua del footprint (imagen original) fija al **0.8** de opacidad y `auto 100vh` (alto = pantalla, 23/10); tarjeta blanca con sombra en capas, botones y progreso con degradado del accent; sliders en q16/q18; «Atrás» solo abajo; «Enviar» solo en la última. Plantilla: `templates/styles.css` + `templates/app.js` + `scripts/generate-site.mjs`; el asset se copia en cada `npm run generate`.
 - ✅ Cambios 22/10 (con usuario, vía servidor local :8080):
   - Eliminado el botón «Atrás» superior de cada sección (`renderPage` en generate-site.mjs) + su CSS `.hh-btn-back`; queda solo el inferior.
   - q3 «veces por día usa el inodoro» restringida a **enteros 0–10** vía `NUMBER_LIMITS` (override del generador).
@@ -100,25 +100,26 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
 - `data/` es gitignore completo → SQL/CSV/nunca van al repo ni a Pages.
 
-## Dashboard público (22/10)
+## Dashboard público (22/10, refactorizado 23/10)
 
 - **URL: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/dashboard/** — **sin contraseña** (decisión explícita del usuario; primero se planteó gate con contraseña y se descartó).
 - Generador: `npm run dashboard` (`scripts/build-dashboard.mjs`) → escribe **`dashboard/index.html`** (HTML único autocontenido, se commitea y Pages lo sirve desde la raíz).
 - Mapping qid→columna ahora **compartido** en `scripts/columns.mjs` (lo importan `export-supabase.mjs` y `build-dashboard.mjs`).
-- Contenido: KPIs (total, rango de fechas, huella diaria/mensual, % con huella, horas/día) · distribución por perfil (unidad, género, vínculo, días/semana) · hábitos (inodoro, mingitorio, dispenser, mate/té, café, copias/mes, comedor % + veces/semana) · **tabla** con buscador, filtros por unidad/género/vínculo, paginación (25/pág) y export CSV.
+- **Filtros generales (23/10)**: barra «Filtros generales» con **unidad académica** + **año** (opciones derivadas de `created_at`) + botón Limpiar. Aplican a **todo**: encabezado, KPIs, perfil, hábitos y tabla. Las agregaciones ahora se calculan **en cliente** (`window.HH_DASH` lleva cols/rows/map/opts; funciones `statsOf`/`countsOf`/`scaleOf`/`direct` en el JS inline) — antes eran estáticas del build. La tabla mantiene filtros propios (búsqueda, género, vínculo) que se suman a los generales. Verificado: JS sin errores de sintaxis; filtro por FIQ (52 respuestas) recalcula promedios correctamente.
+- Contenido: **5 KPIs** (total + rango de fechas, huella diaria/mensual, consumo directo L/día y L/mes; «Con huella calculada» eliminado y «Horas por día en la UNL» movida a perfil, ambas el 23/10) · distribución por perfil (unidad, género, vínculo, días/semana + horas/día dentro de la tarjeta de días) · hábitos (inodoro, mingitorio, dispenser, mate/té, café, copias/mes, comedor % + veces/semana) · **tabla** con buscador, filtros por género/vínculo, paginación (25/pág) y export CSV.
 - **NO incluye** IP, `status` ni submission id (grep verificado contra el HTML generado). Usa `meta robots noindex` y no está enlazada desde la home.
 - **Consumo directo de agua** (indicador agregado 22/10, decisión del usuario): dos KPIs, L/día y L/mes, con fórmula `inodoro×6 L + mingitorio×0.5 L + litros dispenser + litros mate/té` (litros crudos, sin factor de huella; **café excluido**). Mes = día × días/semana × 4 (mismo criterio que q63; q16 ausente en 1 respuesta → n=136). Actuales: **32,38 L/día** (mediana 12, n=137) y **499,49 L/mes** (mediana 177, n=136). Nota metodológica visible bajo la grilla de KPIs. Ojo: promedios sesgados por un outlier (222 usos de inodoro/día) — por eso se muestra la mediana.
-- Estilos heredados de `site/styles.css` (link `../site/styles.css`) — requiere `npm run generate` previo; datos de ejemplo: 137 respuestas, huella promedio 355,27 L/día (n=134).
+- Estilos heredados de `site/styles.css` (link `../site/styles.css`) — requiere `npm run generate` previo; datos reales del último fetch: 137 respuestas, huella promedio 355,27 L/día (n=134).
 - `scripts/serve.mjs` ahora sirve además `/dashboard/` y el alias `/site/*` (rutas locales iguales a Pages).
 - ⚠️ La **tabla individual de respuestas queda pública** para cualquiera con la URL (decisión del usuario del 22/10; `site/respuestas.html` sigue fuera de Pages).
-- **Desplegado y verificado 22/10**: commit `8dae8d6` → Pages `status: built`; `/dashboard/` → 200 (45 KB, 6 KPIs, 30 barras, 137 filas), CSS y marca de agua → 200, sin IP en el HTML publicado.
+- **Desplegado y verificado 22/10** (commits en `main`: `8dae8d6` dashboard → `ff69776` docs → `920a534` indicador): último build de Pages = `920a534` (`status: built`); `/dashboard/` → 200 (46,5 KB, **7 KPIs**, 30 barras, 137 filas), CSS y marca de agua → 200, sin IP en el HTML publicado.
 - Regenerar tras cada `npm run fetch`; commit + push para actualizar Pages (~1 min rebuild).
 
 ## Pendientes / posibles mejoras
 
 - [x] ~~Feedback visual del usuario~~ — hecho el 19/10 (colores, marca de agua, sliders, botones).
 - [ ] Quitar `scripts/check-output.mjs` y `scripts/check-calcs.mjs` si ya no se necesitan (son tools de desarrollo).
-- [x] ~~Evaluar publicación~~ — hecho 22/10: GitHub Pages en https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/ sin respuestas (404 verificado).
+- [x] ~~Evaluar publicación~~ — hecho 22/10: GitHub Pages en https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/. `site/respuestas.html` sigue sin publicar (404), pero la tabla individual **sí** se publica en `/dashboard/` por decisión del usuario.
 - [ ] `data/site-config.json` no creado; crear solo si el usuario quiere cambiar modo/colores.
 - [ ] Posible: cachear fetch sin re-descargar todo (ahora `npm run fetch` baja las 137 respuestas cada vez).
 - [ ] El formulario original tiene `thanktext` (página de agradecimiento Jotform) — se embebe en modo `demo`; en modo `jotform` Jotform muestra la suya propia.
