@@ -3,8 +3,10 @@
  * Genera dashboard/index.html: dashboard público con KPIs, distribución
  * por perfil, hábitos de consumo y tabla de respuestas con filtros.
  *
- * - Agregados calculados acá; la tabla embebe fecha + valores (sin IP,
- *   sin status, sin submission id), igual que respuestas.html.
+ * Filtros generales (unidad académica + año) aplican a TODO: KPIs,
+ * perfil, hábitos y tabla. Las agregaciones se calculan en cliente
+ * sobre las filas embebidas (sin IP, sin status, sin submission id).
+ *
  * - Usa scripts/columns.mjs (mapping qid → columna compartido con
  *   export-supabase.mjs) y hereda los estilos de site/styles.css.
  *
@@ -81,111 +83,10 @@ function fieldValue(sub, qid) {
 
 const num = (v) => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
 
-function stats(values) {
-  const nums = values.map(num).filter((n) => n !== null);
-  if (!nums.length) return null;
-  const sorted = [...nums].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  const round = (n) => Math.round(n * 100) / 100;
-  return {
-    n: sorted.length,
-    avg: round(sorted.reduce((a, b) => a + b, 0) / sorted.length),
-    median: round(median),
-    min: sorted[0],
-    max: sorted[sorted.length - 1],
-  };
-}
-
-function counts(qid, { multi = false } = {}) {
+function optionsOf(qid) {
   const question = structure.questions.find((x) => x.qid === qid);
-  const order = (question?.options || []).map(String);
-  const map = new Map(order.map((o) => [o, 0]));
-  let answered = 0;
-  for (const sub of subs) {
-    const raw = fieldValue(sub, qid);
-    if (!raw) continue;
-    answered++;
-    const parts = multi
-      ? raw.split(';').map((s) => s.trim()).filter(Boolean)
-      : [raw];
-    for (const p of parts) map.set(p, (map.get(p) || 0) + 1);
-  }
-  const items = [...map.entries()]
-    .map(([label, count]) => ({ label, count }))
-    .filter((i) => i.count > 0);
-  return { items, answered };
+  return (question?.options || []).map(String);
 }
-
-function scaleCounts(qid) {
-  const map = new Map();
-  for (const sub of subs) {
-    const n = num(fieldValue(sub, qid));
-    if (n === null) continue;
-    map.set(String(n), (map.get(String(n)) || 0) + 1);
-  }
-  return [...map.entries()]
-    .sort((a, b) => Number(a[0]) - Number(b[0]))
-    .map(([label, count]) => ({ label, count }));
-}
-
-const fmt = (n) =>
-  n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(n);
-
-const shortLabel = (l) => (l.includes(':') ? l.slice(0, l.indexOf(':')) : l);
-
-const total = subs.length;
-const dates = subs.map((s) => String(s.created_at || '').slice(0, 10)).filter(Boolean).sort();
-const fechaMin = dates[0] || '—';
-const fechaMax = dates[dates.length - 1] || '—';
-
-const stDiaria = stats(subs.map((s) => fieldValue(s, q('huella_diaria'))));
-const stMensual = stats(subs.map((s) => fieldValue(s, q('huella_mensual'))));
-const pctHuella = total && stDiaria ? Math.round((stDiaria.n / total) * 100) : 0;
-
-const cUnidad = counts(q('unidad_academica'));
-const cGenero = counts(q('genero'));
-const cVinculo = counts(q('vinculo_unl'), { multi: true });
-const cDias = scaleCounts(q('dias_semana'));
-const stHoras = stats(subs.map((s) => fieldValue(s, q('horas_dia'))));
-
-const HABIT_DEFS = [
-  { col: 'inodoro_dia', label: 'Inodoro', unit: 'veces/día' },
-  { col: 'mingitorio_dia', label: 'Mingitorio', unit: 'veces/día' },
-  { col: 'litros_dispenser', label: 'Agua del dispenser', unit: 'L/día' },
-  { col: 'litros_mate', label: 'Mate o té', unit: 'L/día' },
-  { col: 'tazas_cafe', label: 'Café', unit: 'tazas/día' },
-  { col: 'copias_mes', label: 'Copias / impresiones', unit: 'hojas/mes' },
-];
-const habitStats = HABIT_DEFS.map((d) => ({
-  ...d,
-  stats: stats(subs.map((s) => fieldValue(s, q(d.col)))),
-}));
-
-const cComedor = counts(q('almorza_comedor'));
-const stVeces = stats(subs.map((s) => fieldValue(s, q('veces_comedor_semana'))));
-const nSi = (cComedor.items.find((i) => i.label === 'Sí') || {}).count || 0;
-const pctSi = cComedor.answered ? Math.round((nSi / cComedor.answered) * 100) : 0;
-
-const DIRECT_LITERS = { inodoro_dia: 6, mingitorio_dia: 0.5 };
-const DIRECT_FIELDS = ['inodoro_dia', 'mingitorio_dia', 'litros_dispenser', 'litros_mate'];
-
-function directConsumption(sub) {
-  if (!DIRECT_FIELDS.some((c) => fieldValue(sub, q(c)) !== '')) return { day: null, month: null };
-  let day = 0;
-  for (const [col, liters] of Object.entries(DIRECT_LITERS)) {
-    day += (num(fieldValue(sub, q(col))) ?? 0) * liters;
-  }
-  for (const col of ['litros_dispenser', 'litros_mate']) {
-    day += num(fieldValue(sub, q(col))) ?? 0;
-  }
-  const dias = num(fieldValue(sub, q('dias_semana')));
-  return { day, month: dias === null ? null : day * dias * 4 };
-}
-
-const direct = subs.map(directConsumption);
-const stDirectDay = stats(direct.map((d) => d.day));
-const stDirectMonth = stats(direct.map((d) => d.month));
 
 const EXCLUDED_TYPES = [
   'control_head',
@@ -210,108 +111,59 @@ const rows = subs.map((s) => ({
   v: TABLE_COLS.map((c) => fieldValue(s, c.qid)),
 }));
 
-const payload = JSON.stringify({ cols: TABLE_COLS, rows, pageSize: 25 }).replace(/</g, '\\u003c');
+const idxOf = (col) => TABLE_COLS.findIndex((c) => c.qid === q(col));
+const MAP = {
+  unidad: idxOf('unidad_academica'),
+  genero: idxOf('genero'),
+  vinculo: idxOf('vinculo_unl'),
+  dias: idxOf('dias_semana'),
+  horas: idxOf('horas_dia'),
+  inodoro: idxOf('inodoro_dia'),
+  mingitorio: idxOf('mingitorio_dia'),
+  dispenser: idxOf('litros_dispenser'),
+  mate: idxOf('litros_mate'),
+  cafe: idxOf('tazas_cafe'),
+  copias: idxOf('copias_mes'),
+  comedor: idxOf('almorza_comedor'),
+  veces: idxOf('veces_comedor_semana'),
+  huellaD: idxOf('huella_diaria'),
+  huellaM: idxOf('huella_mensual'),
+};
+const OPTS = {
+  unidad: optionsOf(q('unidad_academica')),
+  genero: optionsOf(q('genero')),
+  vinculo: optionsOf(q('vinculo_unl')),
+  comedor: optionsOf(q('almorza_comedor')),
+};
+const years = [
+  ...new Set(subs.map((s) => String(s.created_at || '').slice(0, 4)).filter((y) => /^\d{4}$/.test(y))),
+].sort().reverse();
+
+const payload = JSON.stringify({
+  cols: TABLE_COLS,
+  rows,
+  pageSize: 25,
+  map: MAP,
+  opts: OPTS,
+}).replace(/</g, '\\u003c');
+
+const unitOptionsHtml = OPTS.unidad
+  .filter((o) => subs.some((s) => fieldValue(s, q('unidad_academica')) === o))
+  .map((o) => `<option value="${esc(o)}">${esc(o)}</option>`)
+  .join('\n      ');
+const yearOptionsHtml = years
+  .map((y) => `<option value="${y}">${y}</option>`)
+  .join('\n      ');
 
 /* ------------------------------------------------------------------ */
-/* Render de piezas                                                    */
+/* Datos de log (build-time, solo informativo)                          */
 /* ------------------------------------------------------------------ */
 
-function kpi(label, value, unit, sub) {
-  return `<div class="dash-kpi">
-      <span class="dash-kpi-label">${esc(label)}</span>
-      <span class="dash-kpi-value">${value}${unit ? ` <span class="dash-kpi-unit">${esc(unit)}</span>` : ''}</span>
-      <span class="dash-kpi-sub">${esc(sub)}</span>
-    </div>`;
-}
-
-function statCard(label, st, unit) {
-  if (!st) {
-    return `<div class="dash-stat">
-      <span class="dash-stat-label">${esc(label)}</span>
-      <span class="dash-stat-value">—</span>
-      <span class="dash-stat-sub">sin datos</span>
-    </div>`;
-  }
-  return `<div class="dash-stat">
-      <span class="dash-stat-label">${esc(label)}</span>
-      <span class="dash-stat-value">${fmt(st.avg)}<span class="dash-stat-unit">${esc(unit)}</span></span>
-      <span class="dash-stat-sub">mediana ${fmt(st.median)} · mín ${fmt(st.min)} – máx ${fmt(st.max)} · n=${st.n}</span>
-    </div>`;
-}
-
-function bars(items) {
-  if (!items.length) return '<p class="dash-nodata">Sin datos.</p>';
-  const max = Math.max(1, ...items.map((i) => i.count));
-  return `<div class="dash-bars">${items
-    .map(
-      (i) => `<div class="dash-bar">
-        <span class="dash-bar-label" title="${esc(i.label)}">${esc(shortLabel(i.label))}</span>
-        <span class="dash-bar-track"><span class="dash-bar-fill" style="width:${Math.round(
-          (i.count / max) * 100
-        )}%"></span></span>
-        <span class="dash-bar-val">${i.count}</span>
-      </div>`
-    )
-    .join('')}</div>`;
-}
-
-function options(items) {
-  return items.map((i) => `<option value="${esc(i.label)}">${esc(i.label)}</option>`).join('');
-}
-
-const kpisHtml = [
-  kpi('Respuestas totales', String(total), '', `${fechaMin} → ${fechaMax}`),
-  kpi('Huella diaria promedio', fmt(stDiaria && stDiaria.avg), 'L/día',
-    stDiaria ? `mediana ${fmt(stDiaria.median)} · mín ${fmt(stDiaria.min)} – máx ${fmt(stDiaria.max)} · n=${stDiaria.n}` : 'sin datos'),
-  kpi('Huella mensual promedio', fmt(stMensual && stMensual.avg), 'L/mes',
-    stMensual ? `mediana ${fmt(stMensual.median)} · n=${stMensual.n}` : 'sin datos'),
-  kpi('Con huella calculada', `${pctHuella}%`, '', stDiaria ? `${stDiaria.n} de ${total} respuestas` : 'sin datos'),
-  kpi('Horas por día en la UNL', fmt(stHoras && stHoras.avg), 'hs',
-    stHoras ? `mediana ${fmt(stHoras.median)} · mín ${fmt(stHoras.min)} – máx ${fmt(stHoras.max)} · n=${stHoras.n}` : 'sin datos'),
-  kpi('Consumo directo de agua', fmt(stDirectDay && stDirectDay.avg), 'L/día',
-    stDirectDay ? `mediana ${fmt(stDirectDay.median)} · mín ${fmt(stDirectDay.min)} – máx ${fmt(stDirectDay.max)} · n=${stDirectDay.n}` : 'sin datos'),
-  kpi('Consumo directo al mes', fmt(stDirectMonth && stDirectMonth.avg), 'L/mes',
-    stDirectMonth ? `mediana ${fmt(stDirectMonth.median)} · mín ${fmt(stDirectMonth.min)} – máx ${fmt(stDirectMonth.max)} · n=${stDirectMonth.n}` : 'sin datos'),
-].join('\n    ');
-
-const perfilHtml = `
-  <div class="dash-grid">
-    <div class="hh-card dash-card">
-      <h3 class="dash-card-title">Unidad académica</h3>
-      ${bars(cUnidad.items)}
-    </div>
-    <div class="hh-card dash-card">
-      <h3 class="dash-card-title">Género</h3>
-      ${bars(cGenero.items)}
-      <h3 class="dash-card-title dash-card-title--gap">Vínculo con la UNL</h3>
-      ${bars(cVinculo.items)}
-    </div>
-    <div class="hh-card dash-card">
-      <h3 class="dash-card-title">Días por semana en la UNL</h3>
-      ${bars(cDias)}
-      <p class="dash-card-note">Promedio de asistencia: <strong>${fmt(
-        cDias.length
-          ? Math.round(
-              (cDias.reduce((a, i) => a + Number(i.label) * i.count, 0) /
-                cDias.reduce((a, i) => a + i.count, 0)) * 100
-            ) / 100
-          : null
-      )} días/semana</strong> (${cDias.reduce((a, i) => a + i.count, 0)} respuestas)</p>
-    </div>
-  </div>`;
-
-const habitosHtml = `
-  <div class="dash-stats">
-    ${habitStats.map((h) => statCard(h.label, h.stats, h.unit)).join('\n    ')}
-    <div class="dash-stat dash-stat--wide">
-      <span class="dash-stat-label">Almuerza en el comedor / cantina</span>
-      <span class="dash-stat-value dash-stat-value--big">${pctSi}<span class="dash-stat-unit">%</span></span>
-      <span class="dash-stat-sub">${nSi} de ${cComedor.answered} que respondieron</span>
-      <span class="dash-stat-sub">Veces por semana: ${
-        stVeces ? `${fmt(stVeces.avg)} (mín ${fmt(stVeces.min)} – máx ${fmt(stVeces.max)} · n=${stVeces.n})` : '—'
-      }</span>
-    </div>
-  </div>`;
+const total = subs.length;
+const dates = subs.map((s) => String(s.created_at || '').slice(0, 10)).filter(Boolean).sort();
+const fechaMin = dates[0] || '—';
+const fechaMax = dates[dates.length - 1] || '—';
+const nUnidad = new Set(subs.map((s) => fieldValue(s, q('unidad_academica'))).filter(Boolean)).size;
 
 const html = `<!DOCTYPE html>
 <html lang="es">
@@ -324,6 +176,10 @@ const html = `<!DOCTYPE html>
 <style>
 .hh-wrap--dash { max-width: 1180px; }
 .dash-title { color: #fff; font-size: 1.15rem; font-weight: 700; margin: 34px 0 14px; letter-spacing: -0.01em; }
+.dash-globalbar { margin: 6px 0 4px; }
+.dash-globalbar .hh-select { width: auto; max-width: 235px; }
+.dash-globalbar .hh-btn { padding: 10px 16px; white-space: nowrap; }
+.dash-globalbar .hh-count { color: var(--hh-muted); }
 .dash-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .dash-kpi { background: var(--hh-surface); border: 1px solid var(--hh-border); border-radius: var(--hh-radius); box-shadow: var(--hh-shadow); padding: 18px 20px; display: flex; flex-direction: column; gap: 4px; }
 .dash-kpi-label { font-size: 0.76rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hh-muted); }
@@ -369,34 +225,44 @@ const html = `<!DOCTYPE html>
   <header class="hh-hero">
     <span class="hh-badge">Dashboard</span>
     <h1>${esc(formTitle)}</h1>
-    <p>${total} respuestas · ${fechaMin} → ${fechaMax}</p>
+    <p id="dash-summary">${total} respuestas · ${fechaMin} → ${fechaMax}</p>
   </header>
 
-  <div class="dash-kpis">
-    ${kpisHtml}
+  <div class="hh-card dash-card dash-globalbar">
+    <h3 class="dash-card-title">Filtros generales</h3>
+    <div class="hh-toolbar">
+      <select class="hh-select" id="dash-g-unidad" aria-label="Filtrar por unidad académica">
+        <option value="">Unidad académica: todas</option>
+        ${unitOptionsHtml}
+      </select>
+      <select class="hh-select" id="dash-g-anio" aria-label="Filtrar por año">
+        <option value="">Año: todos</option>
+        ${yearOptionsHtml}
+      </select>
+      <button class="hh-btn hh-btn-secondary" id="dash-g-clear" type="button">Limpiar filtros</button>
+      <span class="hh-count" id="dash-g-count"></span>
+    </div>
   </div>
+
+  <div class="dash-kpis" id="dash-kpis"></div>
   <p class="dash-kpi-note">Consumo directo (en la UNL) = inodoro (6 L por uso) + mingitorio (0,5 L por uso) + agua del dispenser + mate/té. Al mes: valor diario × días de asistencia × 4 (mismo criterio que la huella mensual del formulario).</p>
 
   <h2 class="dash-title">Distribución por perfil</h2>
-  ${perfilHtml}
+  <div id="dash-perfil"></div>
 
   <h2 class="dash-title">Hábitos de consumo</h2>
-  ${habitosHtml}
+  <div id="dash-habitos"></div>
 
   <h2 class="dash-title">Tabla de respuestas</h2>
   <div class="hh-toolbar dash-toolbar">
     <input class="hh-input" id="dash-search" type="search" placeholder="Buscar en las respuestas…">
-    <select class="hh-select" id="dash-f-unidad" aria-label="Filtrar por unidad académica">
-      <option value="">Unidad académica: todas</option>
-      ${options(cUnidad.items)}
-    </select>
     <select class="hh-select" id="dash-f-genero" aria-label="Filtrar por género">
       <option value="">Género: todos</option>
-      ${options(cGenero.items)}
+      ${OPTS.genero.filter((o) => subs.some((s) => fieldValue(s, q('genero')) === o)).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('\n      ')}
     </select>
     <select class="hh-select" id="dash-f-vinculo" aria-label="Filtrar por vínculo">
       <option value="">Vínculo: todos</option>
-      ${options(cVinculo.items)}
+      ${OPTS.vinculo.filter((o) => subs.some((s) => fieldValue(s, q('vinculo_unl')) === o)).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('\n      ')}
     </select>
     <span class="hh-count" id="dash-count"></span>
     <button class="hh-btn hh-btn-secondary" id="dash-csv" type="button">Exportar CSV</button>
@@ -428,11 +294,16 @@ const html = `<!DOCTYPE html>
   var D = window.HH_DASH;
   var cols = D.cols;
   var rows = D.rows;
+  var M = D.map;
+  var OPTS = D.opts;
   var PAGE = D.pageSize || 25;
   var page = 1;
   var $ = function (id) { return document.getElementById(id); };
+  var gU = $('dash-g-unidad');
+  var gY = $('dash-g-anio');
+  var gCount = $('dash-g-count');
+  var summary = $('dash-summary');
   var search = $('dash-search');
-  var fU = $('dash-f-unidad');
   var fG = $('dash-f-genero');
   var fV = $('dash-f-vinculo');
   var head = $('dash-head');
@@ -447,29 +318,234 @@ const html = `<!DOCTYPE html>
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-
-  function colIndex(qid) {
-    for (var i = 0; i < cols.length; i++) if (cols[i].qid === qid) return i;
-    return -1;
+  function num(v) {
+    v = String(v == null ? '' : v).trim();
+    return v === '' || isNaN(Number(v)) ? null : Number(v);
   }
-  var iU = colIndex('12');
-  var iG = colIndex('11');
-  var iV = colIndex('14');
+  function fmt(n) {
+    return n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(n);
+  }
+  function shortLabel(l) { return l.indexOf(':') >= 0 ? l.slice(0, l.indexOf(':')) : l; }
+  function cell(r, i) { return i >= 0 ? String(r.v[i] == null ? '' : r.v[i]) : ''; }
+  function yearOf(r) { return String(r.f || '').slice(0, 4); }
+
+  function globalRows() {
+    var u = gU.value;
+    var y = gY.value;
+    return rows.filter(function (r) {
+      if (u && cell(r, M.unidad) !== u) return false;
+      if (y && yearOf(r) !== y) return false;
+      return true;
+    });
+  }
+
+  function statsOf(vals) {
+    var nums = [];
+    for (var i = 0; i < vals.length; i++) {
+      var n = num(vals[i]);
+      if (n !== null) nums.push(n);
+    }
+    if (!nums.length) return null;
+    nums.sort(function (a, b) { return a - b; });
+    var mid = Math.floor(nums.length / 2);
+    var median = nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+    var round = function (n) { return Math.round(n * 100) / 100; };
+    var sum = 0;
+    for (var j = 0; j < nums.length; j++) sum += nums[j];
+    return { n: nums.length, avg: round(sum / nums.length), median: round(median), min: nums[0], max: nums[nums.length - 1] };
+  }
+
+  function countsOf(list, idx, order, multi) {
+    var map = {};
+    var keys = order || [];
+    for (var k = 0; k < keys.length; k++) map[keys[k]] = 0;
+    var answered = 0;
+    for (var i = 0; i < list.length; i++) {
+      var raw = cell(list[i], idx);
+      if (!raw) continue;
+      answered++;
+      var parts = multi
+        ? raw.split(';').map(function (s) { return s.trim(); }).filter(Boolean)
+        : [raw];
+      for (var j = 0; j < parts.length; j++) map[parts[j]] = (map[parts[j]] || 0) + 1;
+    }
+    var items = [];
+    for (var key in map) if (map[key] > 0) items.push({ label: key, count: map[key] });
+    return { items: items, answered: answered };
+  }
+
+  function scaleOf(list, idx) {
+    var map = {};
+    for (var i = 0; i < list.length; i++) {
+      var n = num(cell(list[i], idx));
+      if (n === null) continue;
+      map[String(n)] = (map[String(n)] || 0) + 1;
+    }
+    var items = [];
+    for (var k in map) items.push({ label: k, count: map[k] });
+    items.sort(function (a, b) { return Number(a.label) - Number(b.label); });
+    return items;
+  }
+
+  function kpi(label, value, unit, sub) {
+    return '<div class="dash-kpi">' +
+      '<span class="dash-kpi-label">' + esc(label) + '</span>' +
+      '<span class="dash-kpi-value">' + value + (unit ? ' <span class="dash-kpi-unit">' + esc(unit) + '</span>' : '') + '</span>' +
+      '<span class="dash-kpi-sub">' + esc(sub) + '</span>' +
+      '</div>';
+  }
+
+  function statCard(label, st, unit) {
+    if (!st) {
+      return '<div class="dash-stat">' +
+        '<span class="dash-stat-label">' + esc(label) + '</span>' +
+        '<span class="dash-stat-value">—</span>' +
+        '<span class="dash-stat-sub">sin datos</span>' +
+        '</div>';
+    }
+    return '<div class="dash-stat">' +
+      '<span class="dash-stat-label">' + esc(label) + '</span>' +
+      '<span class="dash-stat-value">' + fmt(st.avg) + '<span class="dash-stat-unit">' + esc(unit) + '</span></span>' +
+      '<span class="dash-stat-sub">mediana ' + fmt(st.median) + ' · mín ' + fmt(st.min) + ' – máx ' + fmt(st.max) + ' · n=' + st.n + '</span>' +
+      '</div>';
+  }
+
+  function bars(items) {
+    if (!items.length) return '<p class="dash-nodata">Sin datos.</p>';
+    var max = 1;
+    for (var i = 0; i < items.length; i++) if (items[i].count > max) max = items[i].count;
+    return '<div class="dash-bars">' + items.map(function (i) {
+      return '<div class="dash-bar">' +
+        '<span class="dash-bar-label" title="' + esc(i.label) + '">' + esc(shortLabel(i.label)) + '</span>' +
+        '<span class="dash-bar-track"><span class="dash-bar-fill" style="width:' + Math.round((i.count / max) * 100) + '%"></span></span>' +
+        '<span class="dash-bar-val">' + i.count + '</span>' +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  function direct(r) {
+    var hasAny = false;
+    var day = 0;
+    var lit = [[M.inodoro, 6], [M.mingitorio, 0.5]];
+    for (var i = 0; i < lit.length; i++) {
+      var v = num(cell(r, lit[i][0]));
+      if (v !== null) hasAny = true;
+      day += (v || 0) * lit[i][1];
+    }
+    var add = [M.dispenser, M.mate];
+    for (var j = 0; j < add.length; j++) {
+      var v2 = num(cell(r, add[j]));
+      if (v2 !== null) hasAny = true;
+      day += v2 || 0;
+    }
+    if (!hasAny) return { day: null, month: null };
+    var dias = num(cell(r, M.dias));
+    return { day: day, month: dias === null ? null : day * dias * 4 };
+  }
+
+  var HABITS = [
+    [M.inodoro, 'Inodoro', 'veces/día'],
+    [M.mingitorio, 'Mingitorio', 'veces/día'],
+    [M.dispenser, 'Agua del dispenser', 'L/día'],
+    [M.mate, 'Mate o té', 'L/día'],
+    [M.cafe, 'Café', 'tazas/día'],
+    [M.copias, 'Copias / impresiones', 'hojas/mes']
+  ];
+
+  function renderSummary(list) {
+    var dates = list.map(function (r) { return String(r.f || '').slice(0, 10); }).filter(Boolean).sort();
+    var fMin = dates[0] || '—';
+    var fMax = dates[dates.length - 1] || '—';
+    summary.textContent = list.length + ' respuestas · ' + fMin + ' → ' + fMax;
+    gCount.textContent = list.length + ' de ' + rows.length + ' respuestas';
+    return { fMin: fMin, fMax: fMax };
+  }
+
+  function renderKpis(list, range) {
+    var stD = statsOf(list.map(function (r) { return cell(r, M.huellaD); }));
+    var stM = statsOf(list.map(function (r) { return cell(r, M.huellaM); }));
+    var dirs = list.map(direct);
+    var stDD = statsOf(dirs.map(function (d) { return d.day; }));
+    var stDM = statsOf(dirs.map(function (d) { return d.month; }));
+    $('dash-kpis').innerHTML = [
+      kpi('Respuestas totales', String(list.length), '', range.fMin + ' → ' + range.fMax),
+      kpi('Huella diaria promedio', fmt(stD && stD.avg), 'L/día',
+        stD ? 'mediana ' + fmt(stD.median) + ' · mín ' + fmt(stD.min) + ' – máx ' + fmt(stD.max) + ' · n=' + stD.n : 'sin datos'),
+      kpi('Huella mensual promedio', fmt(stM && stM.avg), 'L/mes',
+        stM ? 'mediana ' + fmt(stM.median) + ' · n=' + stM.n : 'sin datos'),
+      kpi('Consumo directo de agua', fmt(stDD && stDD.avg), 'L/día',
+        stDD ? 'mediana ' + fmt(stDD.median) + ' · mín ' + fmt(stDD.min) + ' – máx ' + fmt(stDD.max) + ' · n=' + stDD.n : 'sin datos'),
+      kpi('Consumo directo al mes', fmt(stDM && stDM.avg), 'L/mes',
+        stDM ? 'mediana ' + fmt(stDM.median) + ' · mín ' + fmt(stDM.min) + ' – máx ' + fmt(stDM.max) + ' · n=' + stDM.n : 'sin datos')
+    ].join('');
+  }
+
+  function renderPerfil(list) {
+    var cU = countsOf(list, M.unidad, OPTS.unidad, false);
+    var cG = countsOf(list, M.genero, OPTS.genero, false);
+    var cV = countsOf(list, M.vinculo, OPTS.vinculo, true);
+    var cD = scaleOf(list, M.dias);
+    var stH = statsOf(list.map(function (r) { return cell(r, M.horas); }));
+    var nDias = 0;
+    var wDias = 0;
+    for (var i = 0; i < cD.length; i++) {
+      nDias += cD[i].count;
+      wDias += Number(cD[i].label) * cD[i].count;
+    }
+    var avgDias = nDias ? Math.round((wDias / nDias) * 100) / 100 : null;
+    $('dash-perfil').innerHTML =
+      '<div class="dash-grid">' +
+      '  <div class="hh-card dash-card">' +
+      '    <h3 class="dash-card-title">Unidad académica</h3>' + bars(cU.items) +
+      '  </div>' +
+      '  <div class="hh-card dash-card">' +
+      '    <h3 class="dash-card-title">Género</h3>' + bars(cG.items) +
+      '    <h3 class="dash-card-title dash-card-title--gap">Vínculo con la UNL</h3>' + bars(cV.items) +
+      '  </div>' +
+      '  <div class="hh-card dash-card">' +
+      '    <h3 class="dash-card-title">Días por semana en la UNL</h3>' + bars(cD) +
+      '    <p class="dash-card-note">Promedio de asistencia: <strong>' + fmt(avgDias) + ' días/semana</strong> (' + nDias + ' respuestas)</p>' +
+      '    <h3 class="dash-card-title dash-card-title--gap">Horas por día en la UNL</h3>' +
+      '    <p class="dash-card-note">' + (stH
+        ? '<strong>' + fmt(stH.avg) + ' hs</strong> · mediana ' + fmt(stH.median) + ' · mín ' + fmt(stH.min) + ' – máx ' + fmt(stH.max) + ' · n=' + stH.n
+        : 'sin datos') + '</p>' +
+      '  </div>' +
+      '</div>';
+  }
+
+  function renderHabitos(list) {
+    var cards = HABITS.map(function (h) {
+      return statCard(h[1], statsOf(list.map(function (r) { return cell(r, h[0]); })), h[2]);
+    }).join('');
+    var cC = countsOf(list, M.comedor, OPTS.comedor, false);
+    var nSi = 0;
+    for (var i = 0; i < cC.items.length; i++) if (cC.items[i].label === 'Sí') nSi = cC.items[i].count;
+    var pct = cC.answered ? Math.round((nSi / cC.answered) * 100) : 0;
+    var stV = statsOf(list.map(function (r) { return cell(r, M.veces); }));
+    $('dash-habitos').innerHTML = '<div class="dash-stats">' + cards +
+      '<div class="dash-stat dash-stat--wide">' +
+      '<span class="dash-stat-label">Almuerza en el comedor / cantina</span>' +
+      '<span class="dash-stat-value dash-stat-value--big">' + pct + '<span class="dash-stat-unit">%</span></span>' +
+      '<span class="dash-stat-sub">' + nSi + ' de ' + cC.answered + ' que respondieron</span>' +
+      '<span class="dash-stat-sub">Veces por semana: ' + (stV
+        ? fmt(stV.avg) + ' (mín ' + fmt(stV.min) + ' – máx ' + fmt(stV.max) + ' · n=' + stV.n + ')'
+        : '—') + '</span>' +
+      '</div></div>';
+  }
 
   head.innerHTML = '<th>Fecha</th>' + cols.map(function (c) {
     return '<th>' + esc(c.label) + '</th>';
   }).join('');
 
   function filtered() {
+    var base = globalRows();
     var term = search.value.toLowerCase().trim();
-    var u = fU.value;
     var g = fG.value;
     var v = fV.value;
-    return rows.filter(function (r) {
-      if (u && iU >= 0 && r.v[iU] !== u) return false;
-      if (g && iG >= 0 && r.v[iG] !== g) return false;
-      if (v && iV >= 0) {
-        var parts = r.v[iV].split(';').map(function (s) { return s.trim(); });
+    return base.filter(function (r) {
+      if (g && cell(r, M.genero) !== g) return false;
+      if (v && M.vinculo >= 0) {
+        var parts = cell(r, M.vinculo).split(';').map(function (s) { return s.trim(); });
         if (parts.indexOf(v) === -1) return false;
       }
       if (term) {
@@ -480,7 +556,8 @@ const html = `<!DOCTYPE html>
     });
   }
 
-  function render() {
+  function renderTable() {
+    var base = globalRows();
     var list = filtered();
     var pages = Math.max(1, Math.ceil(list.length / PAGE));
     if (page > pages) page = pages;
@@ -491,16 +568,26 @@ const html = `<!DOCTYPE html>
       }).join('') + '</tr>';
     }).join('');
     empty.hidden = list.length > 0;
-    empty.textContent = rows.length
+    empty.textContent = base.length
       ? 'Sin resultados para esa búsqueda o esos filtros.'
-      : 'Sin respuestas exportadas. Ejecuta «npm run fetch» y «npm run dashboard».';
-    count.textContent = list.length + ' de ' + rows.length + ' respuestas';
+      : 'Sin respuestas para el filtro seleccionado.';
+    count.textContent = list.length + ' de ' + base.length + ' respuestas';
     pageInfo.textContent = 'Página ' + page + ' de ' + pages;
     prev.disabled = page <= 1;
     next.disabled = page >= pages;
   }
 
-  function reset() { page = 1; render(); }
+  function renderAll() {
+    var g = globalRows();
+    var range = renderSummary(g);
+    renderKpis(g, range);
+    renderPerfil(g);
+    renderHabitos(g);
+    renderTable();
+  }
+
+  function onGlobal() { page = 1; renderAll(); }
+  function onTable() { page = 1; renderTable(); }
 
   function exportCsv() {
     var list = filtered();
@@ -521,15 +608,21 @@ const html = `<!DOCTYPE html>
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
 
-  search.addEventListener('input', reset);
-  fU.addEventListener('change', reset);
-  fG.addEventListener('change', reset);
-  fV.addEventListener('change', reset);
-  prev.addEventListener('click', function () { if (page > 1) { page--; render(); } });
-  next.addEventListener('click', function () { page++; render(); });
+  gU.addEventListener('change', onGlobal);
+  gY.addEventListener('change', onGlobal);
+  $('dash-g-clear').addEventListener('click', function () {
+    gU.value = '';
+    gY.value = '';
+    onGlobal();
+  });
+  search.addEventListener('input', onTable);
+  fG.addEventListener('change', onTable);
+  fV.addEventListener('change', onTable);
+  prev.addEventListener('click', function () { if (page > 1) { page--; renderTable(); } });
+  next.addEventListener('click', function () { page++; renderTable(); });
   $('dash-csv').addEventListener('click', exportCsv);
 
-  render();
+  renderAll();
 })();
 </script>
 </body>
@@ -544,8 +637,5 @@ if (!fs.existsSync(path.join(ROOT, 'site', 'styles.css'))) {
 }
 
 console.log(`✔ dashboard/index.html generado (${(html.length / 1024).toFixed(0)} KB)`);
-console.log(`  · Respuestas: ${total} · Columnas de tabla: ${TABLE_COLS.length}`);
-console.log(`  · Perfil: unidad ${cUnidad.items.length} · género ${cGenero.items.length} · vínculo ${cVinculo.items.length}`);
-console.log(`  · Huella diaria: ${stDiaria ? `prom ${stDiaria.avg} L/día (n=${stDiaria.n})` : 'sin datos'}`);
-console.log(`  · Consumo directo: ${stDirectDay ? `prom ${stDirectDay.avg} L/día (n=${stDirectDay.n})` : 'sin datos'} · ${stDirectMonth ? `prom ${stDirectMonth.avg} L/mes (n=${stDirectMonth.n})` : 'sin datos'}`);
-console.log('\nPrevisualizar: npm run dashboard && npm run serve → http://localhost:8080/dashboard/');
+console.log(`  · Respuestas: ${total} (${fechaMin} → ${fechaMax}) · Columnas de tabla: ${TABLE_COLS.length}`);
+console.log(`  · Filtros generales: unidad académica (${nUnidad}) · años (${years.join(', ') || '—'})`);
