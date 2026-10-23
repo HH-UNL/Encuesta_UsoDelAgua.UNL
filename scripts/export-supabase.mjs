@@ -1,8 +1,12 @@
 /**
  * Genera data/respuestas_hh.sql con CREATE TABLE + INSERT de todas las
  * respuestas de data/submissions.json, listo para pegar en el SQL Editor
- * de Supabase. Idempotente: re-ejecutarlo tras un npm run fetch actualiza
- * los datos (truncate + insert).
+ * de Supabase. Idempotente: INSERT ... ON CONFLICT DO NOTHING, así re-ejecutarlo
+ * tras un npm run fetch no borra las respuestas capturadas por la web.
+ *
+ * Uso:
+ *   node scripts/export-supabase.mjs              # inserta sin tocar lo existente
+ *   node scripts/export-supabase.mjs --truncate   # TRUNCATE + insert (solo históricas)
  *
  * Salida también en data/respuestas_hh.csv (alternativa: importar por
  * Table Editor → Import data → CSV).
@@ -15,6 +19,7 @@ import { COLUMNS } from './columns.mjs';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 const TABLE = 'public.respuestas_hh';
+const TRUNCATE = process.argv.includes('--truncate');
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
@@ -63,25 +68,29 @@ const colDefs = [
 
 const sql = `-- Importación de respuestas — encuesta Huella Hídrica UNL
 -- Generado por scripts/export-supabase.mjs — ${new Date().toISOString()}
--- ${subs.length} respuestas · ${COLUMNS.length} campos
+-- ${subs.length} respuestas · ${COLUMNS.length} campos${TRUNCATE ? ' · CON TRUNCATE' : ''}
 --
 -- Cómo usar: Supabase → SQL Editor → New query → pegar → Run.
--- Re-ejecutar tras un npm run fetch vuelve a importar todo (truncate + insert).
--- RLS queda habilitada SIN políticas: la API (anon key) no puede leer nada;
--- solo se ve desde tu dashboard (service role). "Solo vos".
+-- Por defecto NO trunca: INSERT ... ON CONFLICT DO NOTHING, así conserva
+-- las respuestas que la web captura directo en Supabase. Con --truncate
+-- se reemplaza todo el contenido por el histórico de Jotform.
+--
+-- La web estática inserta con la anon key gracias a la política de
+-- policy-anon-insert.sql (solo INSERT; sin SELECT/UPDATE/DELETE).
 
 create table if not exists ${TABLE} (
 ${colDefs}
 );
 
-truncate ${TABLE};
-
+${TRUNCATE ? `truncate ${TABLE};\n` : ''}
 insert into ${TABLE}
   (submission_id, created_at, status, ${COLUMNS.map((c) => c.col).join(', ')})
 values
-${rows.join(',\n')};
+${rows.join(',\n')}
+on conflict (submission_id) do nothing;
 
--- Seguridad: nadie lee ni escribe vía API pública. En Table Editor se ve todo.
+-- Seguridad: RLS habilitada. La web solo puede INSERTar (política anon);
+-- nadie lee ni modifica vía API pública. En Table Editor se ve todo.
 alter table ${TABLE} enable row level security;
 
 select count(*) as total from ${TABLE};

@@ -1,11 +1,11 @@
 # Resumen de sesión — Proyecto encuesta-HH
 
 > Archivo de contexto para continuar el trabajo en próximas sesiones.
-> Última actualización: 22/10/2026
+> Última actualización: 23/10/2026
 
 ## Objetivo del proyecto
 
-Conectar con la API de Jotform, extraer la **estructura** y las **respuestas** de un formulario real y generar una **web estática equivalente** (HTML/CSS/JS vanilla, sin dependencias, Node ≥18 con fetch nativo).
+Conectar con la API de Jotform, extraer la **estructura** y las **respuestas** de un formulario real y generar una **web estática equivalente** (HTML/CSS/JS vanilla, sin dependencias, Node ≥18 con fetch nativo). **Las respuestas nuevas se envían directo a Supabase** (modo `supabase`, defecto): la web es independiente de Jotform para el envío; la API de Jotform solo se usa para leer estructura/histórico (`npm run fetch`).
 
 ## Formulario conectado
 
@@ -27,7 +27,7 @@ Jotform API → scripts/fetch-jotform.mjs → data/*.json → scripts/generate-s
 
 | Ruta | Función |
 |---|---|
-| `.env` | `JOTFORM_API_KEY`, `JOTFORM_FORM_ID` (nunca commitear) |
+| `.env` | `JOTFORM_API_KEY`, `JOTFORM_FORM_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (nunca commitear) |
 | `scripts/fetch-jotform.mjs` | Descarga detalles, preguntas, propiedades, cálculos, condiciones y todas las respuestas (paginado, 100/página). Normaliza a `data/form-structure.json` + `data/submissions.json`; crudos en `data/raw/` |
 | `scripts/generate-site.mjs` | Genera `site/` (index.html, styles.css, app.js, respuestas.html/js, datos/) |
 | `templates/styles.css`, `templates/app.js` | Plantillas base copiadas a `site/` con tokens (`__ACCENT__`) |
@@ -58,9 +58,10 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 4. **Bloques informativos** `control_text` — se conserva el **HTML crudo** (`extra.html`) con imágenes hotlinkeadas a `www.jotform.com/uploads/...`.
 5. **Escalas** — `scaleFrom` + `scaleAmount` → rango real (q16: 0–6; q18: 0–14). q16 se renderiza como **escala de botones** (radios 0–6, quitada del slider el 22/10); q18 sigue como **slider** (`input type=range`) vía `SLIDER_SCALE_QIDS` en generate-site.mjs (ahora solo `'18'`); el valor del slider se muestra debajo en `--hh-muted` y se recalcula en `input`. Conservan `id=f-{qid}` y `name` originales para cálculos/submit.
 6. **Números** — `minValue`/`maxValue` → attrs min/max + validación JS.
-7. **«Otro»** en radio/checkbox (`allowOther`), required, validación en español, modo de envío `jotform` (POST nativo a form.jotform.com, sin CORS) o `demo`.
-8. **respuestas.html** — tabla embebida (JSON inline, funciona en file://) con buscador; excluye hidden/head/text/pagebreak.
-9. **Navegación (custom 19/10, ajustada 22/10)** — botón «Atrás» solo en el bloque inferior `.hh-actions` (`data-hh="prev"`; el botón superior por sección se eliminó el 22/10 junto a su CSS `.hh-btn-back`); «Enviar» (`data-hh="submit"`) solo visible en la última página; el head duplicado del título en página 1 se omite (`q.label === page.title`); página 1 tiene título al 175% + subtítulo fijo: «En la UNL estamos dando un nuevo paso: comenzamos a gestionar nuestra Huella Hídrica.»
+7. **«Otro»** en radio/checkbox (`allowOther`), required, validación en español.
+8. **Envío a Supabase (23/10, reemplaza al modo jotform)** — `submitMode: "supabase"` (defecto). `templates/app.js` → `submitToSupabase()`: recolecta por qid (`answerValueByQid`, respeta campos ocultos por condiciones, «Otro» → texto), mapea con `CFG.columns` (el mapping `COLUMNS` de `scripts/columns.mjs` se incrusta en `window.HH_CONFIG` desde `generate-site.mjs`), numéricos→`Number`/`null`, `POST {SUPABASE_URL}/rest/v1/respuestas_hh` con headers `apikey`/`Authorization: Bearer`/`Prefer: return=minimal`. Fila: `submission_id` = `crypto.randomUUID()`, `created_at` = ISO now, `status='web'` + 16 columnas. Éxito → thankYou + reset; error → mensaje «No se pudo enviar…» con detalle HTTP, botón se re-habilita (no se pierde la respuesta). El modo `"demo"` sigue disponible vía `site-config.json`. El generador valida que `SUPABASE_URL`/`SUPABASE_ANON_KEY` existan (lee `.env` con parser propio o env vars) y sale con error claro si faltan; ya no genera `action` a Jotform ni `enctype` ni input `formID`.
+9. **respuestas.html** — tabla embebida (JSON inline, funciona en file://) con buscador; excluye hidden/head/text/pagebreak.
+10. **Navegación (custom 19/10, ajustada 22/10)** — botón «Atrás» solo en el bloque inferior `.hh-actions` (`data-hh="prev"`; el botón superior por sección se eliminó el 22/10 junto a su CSS `.hh-btn-back`); «Enviar» (`data-hh="submit"`) solo visible en la última página; el head duplicado del título en página 1 se omite (`q.label === page.title`); página 1 tiene título al 175% + subtítulo fijo: «En la UNL estamos dando un nuevo paso: comenzamos a gestionar nuestra Huella Hídrica.»
 
 ### Verificación
 
@@ -81,7 +82,8 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
   - `site/` regenerado y verificado; `SESSION_SUMMARY.md` al día.
 - ✅ Servidor de prueba: `Start-Process node -ArgumentList "scripts/serve.mjs","8080"` (detener con `Get-NetTCPConnection -LocalPort 8080` → `Stop-Process`).
 - ⚠️ `respuestas.html` contiene **datos personales** de 137 personas — riesgo si se publica.
-- Config por defecto de generación: `submitMode: "jotform"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
+- Config por defecto de generación: `submitMode: "supabase"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
+- ✅ **23/10 — envío independiente a Supabase (verificado con el usuario)**: la web ya no envía a Jotform. Hecho: política de solo INSERT aplicada en Supabase (probada con INSERT vía API → 201), `SUPABASE_ANON_KEY` en `.env` (208 chars, embebida en `site/index.html`), `npm run generate` OK, envío real desde :8080 → fila visible en Table Editor. `scripts/serve.mjs` ahora manda `Cache-Control: no-cache` (antes el navegador cacheaba la versión vieja). La política vive en `policy-anon-insert.sql` (raíz, trackeada; `data/` es gitignore).
 
 ## Despliegue (22/10)
 
@@ -95,10 +97,10 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 
 - Proyecto Supabase: `Encuesta_UsoDelAgua.UNL` (ref `dnyhvtpgdjyqlpoprtlc`, us-east-1).
 - Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). **137 filas** cargadas y verificadas (avg huella_diaria 355,27; 134/137 con huella).
-- **RLS activa sin políticas**: la publishable/anon key no puede leer nada; los datos solo se ven desde el **dashboard de Supabase** (Table Editor con service role). «Solo el dueño».
-- Carga: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor (truncate + insert, idempotente). La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
+- **RLS activa**: la web puede **INSERTar** con la anon key gracias a la política `policy-anon-insert.sql` (`for insert to anon with check (true)`, aplicada el 23/10 y verificada con INSERT → 201). Sin SELECT/UPDATE/DELETE: los datos solo se leen desde el **dashboard de Supabase** (Table Editor con service role). «Solo el dueño».
+- Carga del histórico: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor. **Desde 23/10 NO trunca por defecto** (`INSERT … ON CONFLICT DO NOTHING`) para no borrar las filas que la web captura directo; `--truncate` restaura el comportamiento viejo. La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
-- `data/` es gitignore completo → SQL/CSV/nunca van al repo ni a Pages.
+- `data/` es gitignore completo → SQL/CSV/policy nunca van al repo ni a Pages.
 
 ## Dashboard público (22/10, refactorizado 23/10)
 
@@ -122,7 +124,10 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - [x] ~~Evaluar publicación~~ — hecho 22/10: GitHub Pages en https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/. `site/respuestas.html` sigue sin publicar (404), pero la tabla individual **sí** se publica en `/dashboard/` por decisión del usuario.
 - [ ] `data/site-config.json` no creado; crear solo si el usuario quiere cambiar modo/colores.
 - [ ] Posible: cachear fetch sin re-descargar todo (ahora `npm run fetch` baja las 137 respuestas cada vez).
-- [ ] El formulario original tiene `thanktext` (página de agradecimiento Jotform) — se embebe en modo `demo`; en modo `jotform` Jotform muestra la suya propia.
+- [ ] El formulario original tiene `thanktext` (página de agradecimiento Jotform) — se embebe y se muestra tras el envío exitoso a Supabase.
+- [x] ~~23/10 envío Supabase~~ — hecho: política aplicada, key completa, envío real verificado en Table Editor, commit + push.
+- [ ] Limpieza en Supabase: borrar del Table Editor las filas de prueba (`status='test'` creadas por la API de test y cualquier respuesta de prueba del usuario).
+- [ ] El **dashboard** público lee `data/submissions.json` (histórico de Jotform), no Supabase → las respuestas que llegan por la web **no aparecen** en `/dashboard/` hasta que se importen. Evaluar si el dashboard debe leer de Supabase (requeriría habilitar SELECT anónimo o un proxy) o si basta con re-importar manualmente.
 
 ## Notas técnicas para continuar
 

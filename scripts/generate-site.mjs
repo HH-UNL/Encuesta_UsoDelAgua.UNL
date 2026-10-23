@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { COLUMNS } from './columns.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -32,12 +33,50 @@ const submissionsData = fs.existsSync(submissionsPath)
 const configPath = path.join(DATA_DIR, 'site-config.json');
 const config = {
   accentColor: '#005875',
-  submitMode: 'jotform',
+  submitMode: 'supabase',
   showResponsesPage: true,
   lang: 'es',
   footerText: '',
   ...readJson(configPath),
 };
+
+const ENV = readEnv(path.join(ROOT, '.env'));
+const SUPABASE_URL = (process.env.SUPABASE_URL || ENV.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || ENV.SUPABASE_ANON_KEY || '';
+
+function readEnv(file) {
+  const out = {};
+  try {
+    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+      if (!m || line.trim().startsWith('#')) continue;
+      out[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch {
+    /* sin .env */
+  }
+  return out;
+}
+
+if (!['supabase', 'demo'].includes(config.submitMode)) {
+  console.error(
+    `submitMode «${config.submitMode}» no soportado. Valores válidos: "supabase", "demo".`
+  );
+  process.exit(1);
+}
+if (config.submitMode === 'supabase') {
+  if (!SUPABASE_URL || !/^https:\/\//.test(SUPABASE_URL)) {
+    console.error('Falta SUPABASE_URL (en .env o variable de entorno). Ej.: https://xxxxxxxx.supabase.co');
+    process.exit(1);
+  }
+  if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.length < 20) {
+    console.error(
+      'Falta SUPABASE_ANON_KEY (anon/publishable key del proyecto Supabase) en .env.\n' +
+        '  La necesitás para que la web inserte respuestas; la clave es pública por diseño.'
+    );
+    process.exit(1);
+  }
+}
 
 const COUNTRIES = [
   'España', 'México', 'Argentina', 'Colombia', 'Chile', 'Perú', 'Venezuela', 'Ecuador',
@@ -552,8 +591,6 @@ function submitLabel() {
 function buildIndexHtml() {
   const form = structure.form;
   const pages = structure.pages;
-  const action =
-    config.submitMode === 'jotform' && form.url ? form.url : '#';
   const body = pages.map((p) => renderPage(p, pages.length)).join('\n');
 
   const hhConfig = {
@@ -562,7 +599,11 @@ function buildIndexHtml() {
     clearOnHide: !!form.clearOnHide,
     autoNext: !!form.autoNext,
     thankYou: form.thankYou || '',
+    columns: COLUMNS.map(({ qid, col, type }) => ({ qid, col, type })),
   };
+  if (config.submitMode === 'supabase') {
+    hhConfig.supabase = { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY, table: 'respuestas_hh' };
+  }
   const embeddedConfig = JSON.stringify(hhConfig).replace(/</g, '\\u003c');
 
   return `<!DOCTYPE html>
@@ -582,9 +623,7 @@ function buildIndexHtml() {
 
   <main class="hh-card">
     <div class="hh-progress" hidden><div class="hh-progress-bar"></div></div>
-    <form id="hh-form" class="hh-form" action="${escAttr(action)}" method="POST"
-          enctype="multipart/form-data" novalidate data-mode="${escAttr(config.submitMode)}">
-      <input type="hidden" name="formID" value="${escAttr(form.id)}">
+    <form id="hh-form" class="hh-form" novalidate data-mode="${escAttr(config.submitMode)}">
 ${body}
       <div class="hh-actions">
         <button type="button" class="hh-btn hh-btn-secondary" data-hh="prev" hidden>${esc(

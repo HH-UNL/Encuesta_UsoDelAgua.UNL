@@ -543,22 +543,135 @@
     return rows;
   }
 
-  form.addEventListener('submit', function (e) {
-    if (!validateAll()) {
-      e.preventDefault();
+  function answerValueByQid(qid) {
+    var el = document.getElementById('f-' + qid);
+    if (!el) return '';
+    var field = el.closest ? el.closest('.hh-field') : null;
+    if (field && field.style.display === 'none') return '';
+    if (el.type === 'radio' || el.type === 'checkbox') {
+      var group = form.querySelectorAll(
+        (el.type === 'radio' ? 'input[type="radio"]' : 'input[type="checkbox"]') +
+          '[name="' + CSS.escape(el.name) + '"]'
+      );
+      var parts = [];
+      Array.prototype.forEach.call(group, function (c) {
+        if (!c.checked) return;
+        if (c.dataset.hhOther) {
+          var other = form.querySelector(
+            'input[data-hh-other-target="' + CSS.escape(c.dataset.hhOtherToggle) + '"]'
+          );
+          if (other && other.value.trim()) parts.push(other.value.trim());
+          return;
+        }
+        parts.push(c.value);
+      });
+      return parts.join('; ');
+    }
+    return String(el.value || '').trim();
+  }
+
+  function setSending(on) {
+    if (!btnSubmit) return;
+    btnSubmit.disabled = on;
+    if (on) {
+      btnSubmit.dataset.hhLabel = btnSubmit.textContent;
+      btnSubmit.textContent = 'Enviando…';
+    } else if (btnSubmit.dataset.hhLabel) {
+      btnSubmit.textContent = btnSubmit.dataset.hhLabel;
+    }
+  }
+
+  function resetForm() {
+    form.reset();
+    form.querySelectorAll('[data-hh-other-target]').forEach(function (t) {
+      var input = form.querySelector(
+        'input[data-hh-other-target="' + CSS.escape(t.dataset.hhOtherTarget) + '"]'
+      );
+      if (input) input.hidden = true;
+    });
+    goTo(0);
+  }
+
+  function submitToSupabase() {
+    var sb = CFG.supabase;
+    if (!sb || !sb.url || !sb.anonKey) {
+      showStatus(
+        'error',
+        '<strong>Configuración incompleta:</strong> falta SUPABASE_URL o SUPABASE_ANON_KEY. ' +
+          'Ejecutá «npm run generate» con el .env completo.'
+      );
       return;
     }
-    if (mode === 'jotform') {
-      var btn = form.querySelector('[type="submit"]');
-      if (btn) {
-        btn.disabled = true;
-        btn.dataset.hhLabel = btn.textContent;
-        btn.textContent = 'Enviando…';
+    var cols = CFG.columns || [];
+    if (!cols.length) {
+      showStatus('error', '<strong>Sin columnas configuradas</strong> para exportar la respuesta.');
+      return;
+    }
+    var row = {};
+    cols.forEach(function (c) {
+      var v = answerValueByQid(c.qid);
+      if (v === '') {
+        row[c.col] = null;
+      } else if (c.type === 'numeric') {
+        var n = parseFloat(v.replace(',', '.'));
+        row[c.col] = isNaN(n) ? null : n;
+      } else {
+        row[c.col] = v;
       }
-      return; // envío nativo al formulario original de Jotform
+    });
+    row.submission_id =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'web-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+    row.created_at = new Date().toISOString();
+    row.status = 'web';
+
+    setSending(true);
+    fetch(sb.url.replace(/\/+$/, '') + '/rest/v1/' + sb.table, {
+      method: 'POST',
+      headers: {
+        apikey: sb.anonKey,
+        Authorization: 'Bearer ' + sb.anonKey,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(row),
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.text().then(function (t) {
+            throw new Error('HTTP ' + res.status + (t ? ': ' + t.slice(0, 200) : ''));
+          });
+        }
+        showStatus(
+          'ok',
+          CFG.thankYou
+            ? '<div class="hh-thankyou">' + CFG.thankYou + '</div>'
+            : '<strong>¡Gracias! Tu respuesta fue registrada.</strong>'
+        );
+        resetForm();
+      })
+      .catch(function (err) {
+        showStatus(
+          'error',
+          '<strong>No se pudo enviar la respuesta.</strong> Revisá tu conexión e intentá de nuevo.' +
+            (err && err.message ? ' <span style="color:var(--hh-muted)">(' + err.message + ')</span>' : '')
+        );
+      })
+      .then(function () {
+        setSending(false);
+      });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!validateAll()) return;
+
+    if (mode === 'supabase') {
+      submitToSupabase();
+      return;
     }
 
-    e.preventDefault();
     var summary = collectSummary();
     var html =
       (CFG.thankYou
@@ -576,14 +689,7 @@
         '</ul></details>';
     }
     showStatus('ok', html);
-    form.reset();
-    form.querySelectorAll('[data-hh-other-target]').forEach(function (t) {
-      var input = form.querySelector(
-        'input[data-hh-other-target="' + CSS.escape(t.dataset.hhOtherTarget) + '"]'
-      );
-      if (input) input.hidden = true;
-    });
-    goTo(0);
+    resetForm();
   });
 
   form.querySelectorAll('input[type="range"]').forEach(function (el) {

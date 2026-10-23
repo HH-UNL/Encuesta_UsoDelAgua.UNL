@@ -55,7 +55,10 @@ http
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('404 — no encontrado');
       return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+    });
     fs.createReadStream(file).pipe(res);
   })
   .listen(PORT, () => {
