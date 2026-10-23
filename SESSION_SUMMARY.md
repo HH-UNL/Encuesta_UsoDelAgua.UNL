@@ -129,7 +129,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - [x] ~~23/10 envío Supabase~~ — hecho: política aplicada, key completa, envío real verificado en Table Editor, commit + push.
 - [x] ~~Dashboard lee solo el histórico local~~ — hecho 23/10: fetch en vivo desde la vista `respuestas_hh_public` con fallback al build (ver sección Dashboard).
 - [ ] Limpieza en Supabase: borrar del Table Editor las filas de prueba (`status='test'` creadas por la API de test y cualquier respuesta de prueba del usuario).
-- [ ] **Descuadre 134 vs 137**: la vista devuelve 134 filas pero el histórico local tiene 137 (y la carga inicial decía 137). Preguntar al usuario si borró filas de más al limpiar las de prueba, o re-importar el histórico con `npm run export-supabase` (ya no trunca).
+- [x] ~~Descuadre 134 vs 137~~ — resuelto 23/10: el usuario **borró a propósito 3 filas con errores de datos**; Supabase queda en 134 (vista) y el histórico local en 137. ⚠️ **No re-importar con `export-supabase`** sin revisar: el `ON CONFLICT DO NOTHING` no distinguiría filas borradas por error de las que faltan y **resucitaría** las 3 filas malas. Si algún día hace falta re-importar, filtrar antes esas submission_id en el SQL.
 
 ## Notas técnicas para continuar
 
