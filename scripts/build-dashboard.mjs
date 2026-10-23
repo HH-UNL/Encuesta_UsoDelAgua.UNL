@@ -167,6 +167,26 @@ const stVeces = stats(subs.map((s) => fieldValue(s, q('veces_comedor_semana'))))
 const nSi = (cComedor.items.find((i) => i.label === 'Sí') || {}).count || 0;
 const pctSi = cComedor.answered ? Math.round((nSi / cComedor.answered) * 100) : 0;
 
+const DIRECT_LITERS = { inodoro_dia: 6, mingitorio_dia: 0.5 };
+const DIRECT_FIELDS = ['inodoro_dia', 'mingitorio_dia', 'litros_dispenser', 'litros_mate'];
+
+function directConsumption(sub) {
+  if (!DIRECT_FIELDS.some((c) => fieldValue(sub, q(c)) !== '')) return { day: null, month: null };
+  let day = 0;
+  for (const [col, liters] of Object.entries(DIRECT_LITERS)) {
+    day += (num(fieldValue(sub, q(col))) ?? 0) * liters;
+  }
+  for (const col of ['litros_dispenser', 'litros_mate']) {
+    day += num(fieldValue(sub, q(col))) ?? 0;
+  }
+  const dias = num(fieldValue(sub, q('dias_semana')));
+  return { day, month: dias === null ? null : day * dias * 4 };
+}
+
+const direct = subs.map(directConsumption);
+const stDirectDay = stats(direct.map((d) => d.day));
+const stDirectMonth = stats(direct.map((d) => d.month));
+
 const EXCLUDED_TYPES = [
   'control_head',
   'control_text',
@@ -248,6 +268,10 @@ const kpisHtml = [
   kpi('Con huella calculada', `${pctHuella}%`, '', stDiaria ? `${stDiaria.n} de ${total} respuestas` : 'sin datos'),
   kpi('Horas por día en la UNL', fmt(stHoras && stHoras.avg), 'hs',
     stHoras ? `mediana ${fmt(stHoras.median)} · mín ${fmt(stHoras.min)} – máx ${fmt(stHoras.max)} · n=${stHoras.n}` : 'sin datos'),
+  kpi('Consumo directo de agua', fmt(stDirectDay && stDirectDay.avg), 'L/día',
+    stDirectDay ? `mediana ${fmt(stDirectDay.median)} · mín ${fmt(stDirectDay.min)} – máx ${fmt(stDirectDay.max)} · n=${stDirectDay.n}` : 'sin datos'),
+  kpi('Consumo directo al mes', fmt(stDirectMonth && stDirectMonth.avg), 'L/mes',
+    stDirectMonth ? `mediana ${fmt(stDirectMonth.median)} · mín ${fmt(stDirectMonth.min)} – máx ${fmt(stDirectMonth.max)} · n=${stDirectMonth.n}` : 'sin datos'),
 ].join('\n    ');
 
 const perfilHtml = `
@@ -306,6 +330,7 @@ const html = `<!DOCTYPE html>
 .dash-kpi-value { font-size: 1.85rem; font-weight: 700; color: var(--hh-text); line-height: 1.15; font-variant-numeric: tabular-nums; }
 .dash-kpi-unit { font-size: 0.95rem; font-weight: 600; color: var(--hh-muted); }
 .dash-kpi-sub { font-size: 0.79rem; color: var(--hh-muted); }
+.dash-kpi-note { margin: 12px 2px 0; font-size: 0.8rem; color: rgba(255, 255, 255, 0.75); max-width: 95ch; }
 .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
 .dash-card { padding: clamp(18px, 3vw, 26px); }
 .dash-card-title { margin: 0 0 14px; font-size: 0.95rem; font-weight: 700; padding-bottom: 8px; border-bottom: 2px solid var(--hh-accent-soft); }
@@ -350,6 +375,7 @@ const html = `<!DOCTYPE html>
   <div class="dash-kpis">
     ${kpisHtml}
   </div>
+  <p class="dash-kpi-note">Consumo directo (en la UNL) = inodoro (6 L por uso) + mingitorio (0,5 L por uso) + agua del dispenser + mate/té. Al mes: valor diario × días de asistencia × 4 (mismo criterio que la huella mensual del formulario).</p>
 
   <h2 class="dash-title">Distribución por perfil</h2>
   ${perfilHtml}
@@ -521,4 +547,5 @@ console.log(`✔ dashboard/index.html generado (${(html.length / 1024).toFixed(0
 console.log(`  · Respuestas: ${total} · Columnas de tabla: ${TABLE_COLS.length}`);
 console.log(`  · Perfil: unidad ${cUnidad.items.length} · género ${cGenero.items.length} · vínculo ${cVinculo.items.length}`);
 console.log(`  · Huella diaria: ${stDiaria ? `prom ${stDiaria.avg} L/día (n=${stDiaria.n})` : 'sin datos'}`);
+console.log(`  · Consumo directo: ${stDirectDay ? `prom ${stDirectDay.avg} L/día (n=${stDirectDay.n})` : 'sin datos'} · ${stDirectMonth ? `prom ${stDirectMonth.avg} L/mes (n=${stDirectMonth.n})` : 'sin datos'}`);
 console.log('\nPrevisualizar: npm run dashboard && npm run serve → http://localhost:8080/dashboard/');
