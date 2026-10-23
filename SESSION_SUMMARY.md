@@ -87,7 +87,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 
 - Repo: **https://github.com/HH-UNL/Encuesta_UsoDelAgua.UNL** (público, branch `main`).
 - GitHub Pages habilitado desde la **raíz** (`/`); `index.html` en la raíz redirige a `site/` (Pages solo sirve `/` o `/docs`).
-- **URL pública: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/** → redirige a `/site/`.
+- **URL pública: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/** → redirige a `/site/`. **Dashboard: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/dashboard/** (ambas verificadas con 200 el 22/10).
 - **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) para importarlos después a **Supabase** (con RLS = solo visibles para el dueño). *Excepción 22/10: la tabla individual sí se publica en `/dashboard/` por decisión explícita del usuario (ver sección Dashboard).*
 - Tras cada `npm run generate`, hacer `git add -A && git commit && git push` para actualizar Pages (tarda ~1 min en rebuild).
 
@@ -95,7 +95,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 
 - Proyecto Supabase: `Encuesta_UsoDelAgua.UNL` (ref `dnyhvtpgdjyqlpoprtlc`, us-east-1).
 - Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). **137 filas** cargadas y verificadas (avg huella_diaria 355,27; 134/137 con huella).
-- **RLS activa sin políticas**: la publishable/anon key no puede leer nada; los datos solo se ven desde el dashboard (service role). «Solo el dueño».
+- **RLS activa sin políticas**: la publishable/anon key no puede leer nada; los datos solo se ven desde el **dashboard de Supabase** (Table Editor con service role). «Solo el dueño».
 - Carga: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor (truncate + insert, idempotente). La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
 - `data/` es gitignore completo → SQL/CSV/nunca van al repo ni a Pages.
@@ -110,6 +110,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Estilos heredados de `site/styles.css` (link `../site/styles.css`) — requiere `npm run generate` previo; datos de ejemplo: 137 respuestas, huella promedio 355,27 L/día (n=134).
 - `scripts/serve.mjs` ahora sirve además `/dashboard/` y el alias `/site/*` (rutas locales iguales a Pages).
 - ⚠️ La **tabla individual de respuestas queda pública** para cualquiera con la URL (decisión del usuario del 22/10; `site/respuestas.html` sigue fuera de Pages).
+- **Desplegado y verificado 22/10**: commit `8dae8d6` → Pages `status: built`; `/dashboard/` → 200 (45 KB, 6 KPIs, 30 barras, 137 filas), CSS y marca de agua → 200, sin IP en el HTML publicado.
 - Regenerar tras cada `npm run fetch`; commit + push para actualizar Pages (~1 min rebuild).
 
 ## Pendientes / posibles mejoras
