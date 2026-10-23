@@ -17,12 +17,16 @@ Conectar con la API de Jotform, extraer la **estructura** y las **respuestas** d
 | Credenciales | En `.env` (gitignored) — API key + form ID. Ver `.env.example` |
 | Campos | 39 preguntas (35 renderizables + 8 pagebreaks + button) |
 | Páginas | 9 (8 cortes `control_pagebreak`) |
-| Respuestas | 137 descargadas |
+| Respuestas | 137 descargadas de Jotform · **134 en Supabase** (el usuario borró 3 filas con errores de datos el 23/10) |
 
 ## Arquitectura (pipeline)
 
 ```
 Jotform API → scripts/fetch-jotform.mjs → data/*.json → scripts/generate-site.mjs → site/
+                                                        ↘ scripts/build-dashboard.mjs → dashboard/
+
+site/ (formulario)  --INSERT anon-->  Supabase public.respuestas_hh
+dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en vivo, con fallback al build)
 ```
 
 | Ruta | Función |
@@ -33,8 +37,12 @@ Jotform API → scripts/fetch-jotform.mjs → data/*.json → scripts/generate-s
 | `templates/styles.css`, `templates/app.js` | Plantillas base copiadas a `site/` con tokens (`__ACCENT__`) |
 | `docs/HuellaHidrica.png` | Imagen original del footprint (1.3 MB, fondo negro) — **la que se usa**: el generador la copia a `site/assets/HuellaHidrica.png` y sirve de marca de agua (`body::before`, opacidad 0.8, tamaño `auto 100vh` — el alto llena la pantalla y el ancho escala por proporción) |
 | `docs/HuellaHidrica-mark.png` | Versión 800 px con fondo transparente (452 KB) — generada el 19/10 pero **no en uso** (queda como fallback si falta el original) |
-| `scripts/serve.mjs` | Servidor estático mínimo (puerto 8080 por defecto) |
+| `scripts/serve.mjs` | Servidor estático mínimo (puerto 8080; sirve `/`, `/site/*`, `/dashboard/`; manda `Cache-Control: no-cache`) |
 | `scripts/check-calcs.mjs` | Verifica ecuaciones contra respuestas históricas |
+| `scripts/env.mjs` | Lectura de `.env` compartida (`supabaseConfig(root)`) — la usan generate-site y build-dashboard |
+| `scripts/build-dashboard.mjs` | Genera `dashboard/index.html` (KPIs/filtros/tabla en cliente + fetch en vivo desde Supabase) |
+| `policy-anon-insert.sql` | Raíz, trackeada: política RLS de INSERT anónimo en `respuestas_hh` (1 vez en SQL Editor) |
+| `view-anon-select.sql` | Raíz, trackeada: vista pública `respuestas_hh_public` (16 columnas + created_at) para el dashboard (1 vez en SQL Editor) |
 | `data/site-config.json` | Config opcional de generación (no creado aún; ver defaults abajo) |
 
 ### Comandos
@@ -84,23 +92,24 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - ⚠️ `respuestas.html` contiene **datos personales** de 137 personas — riesgo si se publica.
 - Config por defecto de generación: `submitMode: "supabase"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
 - ✅ **23/10 — envío independiente a Supabase (verificado con el usuario)**: la web ya no envía a Jotform. Hecho: política de solo INSERT aplicada en Supabase (probada con INSERT vía API → 201), `SUPABASE_ANON_KEY` en `.env` (208 chars, embebida en `site/index.html`), `npm run generate` OK, envío real desde :8080 → fila visible en Table Editor. `scripts/serve.mjs` ahora manda `Cache-Control: no-cache` (antes el navegador cacheaba la versión vieja). La política vive en `policy-anon-insert.sql` (raíz, trackeada; `data/` es gitignore).
+- ✅ **Despliegues 23/10 verificados en Pages**: `c334c47` site en modo supabase → `2cc1074` dashboard con datos en vivo → `e44b071` docs → `afc73e9` filtro de huella (último). Cada push verificado con 200 y contenido esperado tras ~1 min de rebuild.
 
-## Despliegue (22/10)
+## Despliegue (22–23/10)
 
 - Repo: **https://github.com/HH-UNL/Encuesta_UsoDelAgua.UNL** (público, branch `main`).
 - GitHub Pages habilitado desde la **raíz** (`/`); `index.html` en la raíz redirige a `site/` (Pages solo sirve `/` o `/docs`).
-- **URL pública: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/** → redirige a `/site/`. **Dashboard: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/dashboard/** (ambas verificadas con 200 el 22/10).
-- **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) para importarlos después a **Supabase** (con RLS = solo visibles para el dueño). *Excepción 22/10: la tabla individual sí se publica en `/dashboard/` por decisión explícita del usuario (ver sección Dashboard).*
-- Tras cada `npm run generate`, hacer `git add -A && git commit && git push` para actualizar Pages (tarda ~1 min en rebuild).
+- **URL pública: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/** → redirige a `/site/`. **Dashboard: https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/dashboard/** (ambas verificadas con 200; última verificación 23/10 tras `afc73e9`).
+- **Datos personales NO publicados**: `.gitignore` excluye `site/respuestas.html`, `site/respuestas.js`, `site/datos/submissions.json` (verificado 404 en Pages). Los datos quedan en local en `data/` (gitignored) y en Supabase (RLS). *Excepción 22/10: la tabla individual sí se publica en `/dashboard/` por decisión explícita del usuario (ver sección Dashboard).*
+- Tras cada `npm run generate` o `npm run dashboard`, hacer `git add -A && git commit && git push` para actualizar Pages (tarda ~1 min en rebuild).
 
 ## Base de datos Supabase (22/10)
 
 - Proyecto Supabase: `Encuesta_UsoDelAgua.UNL` (ref `dnyhvtpgdjyqlpoprtlc`, us-east-1).
-- Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). **137 filas** cargadas y verificadas (avg huella_diaria 355,27; 134/137 con huella).
-- **RLS activa**: la web puede **INSERTar** con la anon key gracias a la política `policy-anon-insert.sql` (`for insert to anon with check (true)`, aplicada el 23/10 y verificada con INSERT → 201). Sin SELECT/UPDATE/DELETE: los datos solo se leen desde el **dashboard de Supabase** (Table Editor con service role). «Solo el dueño».
+- Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). Carga inicial: **137 filas**; hoy **134** (el usuario borró 3 con errores de datos el 23/10).
+- **RLS activa**: la web puede **INSERTar** con la anon key gracias a la política `policy-anon-insert.sql` (`for insert to anon with check (true)`, aplicada el 23/10 y verificada con INSERT → 201). La tabla base **no es legible** para anon (SELECT → `[]`, verificado). Lectura pública: solo vía la vista `respuestas_hh_public` (ver sección Dashboard).
 - Carga del histórico: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor. **Desde 23/10 NO trunca por defecto** (`INSERT … ON CONFLICT DO NOTHING`) para no borrar las filas que la web captura directo; `--truncate` restaura el comportamiento viejo. La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
-- `data/` es gitignore completo → SQL/CSV/policy nunca van al repo ni a Pages.
+- `data/` es gitignore completo → SQL/CSV exportados nunca van al repo ni a Pages. Los SQL de setup **sí se commitean** y viven en la raíz: `policy-anon-insert.sql` y `view-anon-select.sql`.
 
 ## Dashboard público (22/10, refactorizado 23/10)
 
@@ -116,7 +125,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - **Datos en vivo (23/10)**: al cargar, la página consulta la vista pública `public.respuestas_hh_public` (`view-anon-select.sql`, raíz; `grant select to anon`) con la anon key embebida (`window.HH_DASH.remote`) → `GET /rest/v1/respuestas_hh_public?select=*&order=created_at.asc`. Así el dashboard muestra **también las respuestas que llegan por la web, sin rebuild**. Si falla o la vista está vacía → fallback a las filas embebidas del build + nota en el pie (`#dash-live-note`: «Datos en vivo…» vs «Mostrando datos del último build»). `refreshYearOptions()` reconstruye el selector de años tras el fetch. La vista expone **solo** created_at + las 16 columnas del dashboard (sin submission_id/status, verificado); la tabla base con anon sigue devolviendo `[]` (verificado). Verificado 23/10: vista → 200 con 134 filas. Mapping qid→columna compartido via `HH_DASH.remote.colByQid` (los 16 qids de TABLE_COLS == COLUMNS, coincidencia 1:1 verificada). Lectura de `.env` compartida en `scripts/env.mjs` (`supabaseConfig(root)`, la usan generate-site y build-dashboard).
 - `scripts/serve.mjs` ahora sirve además `/dashboard/` y el alias `/site/*` (rutas locales iguales a Pages).
 - ⚠️ La **tabla individual de respuestas queda pública** para cualquiera con la URL (decisión del usuario del 22/10; `site/respuestas.html` sigue fuera de Pages).
-- **Desplegado y verificado 22/10** (commits en `main`: `8dae8d6` dashboard → `ff69776` docs → `920a534` indicador): último build de Pages = `920a534` (`status: built`); `/dashboard/` → 200 (46,5 KB, **7 KPIs**, 30 barras, 137 filas), CSS y marca de agua → 200, sin IP en el HTML publicado.
+- **Desplegado y verificado 22–23/10**: builds de Pages verificados tras cada push — `8dae8d6`→`920a534` (22/10, dashboard inicial e indicador) y `c334c47`→`2cc1074`→`e44b071`→`afc73e9` (23/10, modo supabase, datos en vivo, filtro de huella; el último es el HEAD). `/dashboard/` → 200 (~49 KB, 5 KPIs, filtro de huella activo), sin IP/submission_id/status en el HTML publicado.
 - Regenerar tras cada `npm run fetch`; commit + push para actualizar Pages (~1 min rebuild).
 
 ## Pendientes / posibles mejoras
@@ -129,7 +138,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - [ ] El formulario original tiene `thanktext` (página de agradecimiento Jotform) — se embebe y se muestra tras el envío exitoso a Supabase.
 - [x] ~~23/10 envío Supabase~~ — hecho: política aplicada, key completa, envío real verificado en Table Editor, commit + push.
 - [x] ~~Dashboard lee solo el histórico local~~ — hecho 23/10: fetch en vivo desde la vista `respuestas_hh_public` con fallback al build (ver sección Dashboard).
-- [ ] Limpieza en Supabase: borrar del Table Editor las filas de prueba (`status='test'` creadas por la API de test y cualquier respuesta de prueba del usuario).
+- [x] ~~Limpieza en Supabase: filas de prueba~~ — hecho 23/10: verificado que la vista no tiene filas posteriores al 12/10 (la fila `status='test'` y las respuestas de prueba de la web fueron borradas por el usuario); vistas las 134 finales.
 - [x] ~~Descuadre 134 vs 137~~ — resuelto 23/10: el usuario **borró a propósito 3 filas con errores de datos**; Supabase queda en 134 (vista) y el histórico local en 137. ⚠️ **No re-importar con `export-supabase`** sin revisar: el `ON CONFLICT DO NOTHING` no distinguiría filas borradas por error de las que faltan y **resucitaría** las 3 filas malas. Si algún día hace falta re-importar, filtrar antes esas submission_id en el SQL.
 
 ## Notas técnicas para continuar
@@ -140,6 +149,6 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Números con límites: `NUMBER_LIMITS` en `scripts/generate-site.mjs` (qid 3 «inodoro» → min 0, max 10, step 1); aplica `min`/`max`/`step` + `data-hh-integer="1"` y app.js valida enteros («Introduce un número entero.»). Sobrevive a `npm run fetch` (es override del generador, no del JSON).
 - Condiciones extra: `EXTRA_CONDITIONS` en `scripts/generate-site.mjs` se concatena a `structure.conditions` al armar `HH_CONFIG`; mismo criterio que NUMBER_LIMITS (override que sobrevive a re-fetch). Para agregar reglas nuevas, copiar el formato `{type, link, terms:[{field,operator,value}], actions:[{visibility,field,fields}]}` de Jotform.
 - Navegación: `data-hh="prev"` está solo en `.hh-actions` (inferior); app.js usa `querySelectorAll` (soportaría múltiples si se volvieran a agregar). `data-hh="submit"` se oculta fuera de la última página en `goTo()`.
-- `window.HH_CONFIG` en index.html lleva `{calculations, conditions, clearOnHide, autoNext, thankYou}`.
+- `window.HH_CONFIG` en index.html lleva `{calculations, conditions, clearOnHide, autoNext, thankYou, columns, supabase{url,anonKey,table}}`. `window.HH_DASH` en dashboard lleva `{cols, rows, pageSize, map, opts, remote{url,anonKey,view,colByQid}}`.
 - La API de Jotform NO expone fórmulas en `/questions/{qid}` (404); están en `properties.calculations`. `conditions` viene como string JSON dentro de otro JSON.
 - Cuota API: ~60k req/mes; el script espera 120 ms entre peticiones.
