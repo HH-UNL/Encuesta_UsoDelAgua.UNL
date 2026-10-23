@@ -95,6 +95,14 @@ Pegalo en el SQL Editor de Supabase. Por defecto **no trunca**: usa
 directamente. Para reemplazar todo el contenido por el histórico de Jotform:
 `node scripts/export-supabase.mjs --truncate`.
 
+### Dashboard en vivo
+
+`npm run dashboard` genera `dashboard/index.html`, que al abrirse consulta la vista
+pública `respuestas_hh_public` (crear una vez con `view-anon-select.sql`) para
+mostrar también las respuestas que llegan por la web, **sin regenerar nada**.
+La vista expone solo las 16 columnas del dashboard + `created_at`; si el fetch
+falla, la página se queda con los datos embebidos del último build.
+
 ## Limitaciones
 
 - **Pagos y CAPTCHA** no se replican (Jotform los gestiona en su servidor); se muestra un aviso en su lugar.

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COLUMNS } from './columns.mjs';
+import { supabaseConfig } from './env.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -40,23 +41,9 @@ const config = {
   ...readJson(configPath),
 };
 
-const ENV = readEnv(path.join(ROOT, '.env'));
-const SUPABASE_URL = (process.env.SUPABASE_URL || ENV.SUPABASE_URL || '').replace(/\/+$/, '');
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || ENV.SUPABASE_ANON_KEY || '';
-
-function readEnv(file) {
-  const out = {};
-  try {
-    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
-      if (!m || line.trim().startsWith('#')) continue;
-      out[m[1]] = m[2].replace(/^["']|["']$/g, '');
-    }
-  } catch {
-    /* sin .env */
-  }
-  return out;
-}
+const ENV = supabaseConfig(ROOT);
+const SUPABASE_URL = ENV.url;
+const SUPABASE_ANON_KEY = ENV.anonKey;
 
 if (!['supabase', 'demo'].includes(config.submitMode)) {
   console.error(

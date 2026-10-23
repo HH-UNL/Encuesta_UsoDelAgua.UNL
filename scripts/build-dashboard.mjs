@@ -5,7 +5,12 @@
  *
  * Filtros generales (unidad académica + año) aplican a TODO: KPIs,
  * perfil, hábitos y tabla. Las agregaciones se calculan en cliente
- * sobre las filas embebidas (sin IP, sin status, sin submission id).
+ * sobre las filas activas (sin IP, sin status, sin submission id).
+ *
+ * Datos: al cargar, la página consulta en vivo la vista pública de
+ * Supabase (respuestas_hh_public, ver view-anon-select.sql) para ver
+ * también las respuestas que llegan por la web; si falla o está vacía,
+ * se quedan con las filas embebidas del último build (fallback).
  *
  * - Usa scripts/columns.mjs (mapping qid → columna compartido con
  *   export-supabase.mjs) y hereda los estilos de site/styles.css.
@@ -21,6 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COLUMNS } from './columns.mjs';
+import { supabaseConfig } from './env.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DATA_DIR = path.join(ROOT, 'data');
@@ -139,12 +145,24 @@ const years = [
   ...new Set(subs.map((s) => String(s.created_at || '').slice(0, 4)).filter((y) => /^\d{4}$/.test(y))),
 ].sort().reverse();
 
+const SUPA = supabaseConfig(ROOT);
+const REMOTE =
+  SUPA.url && SUPA.anonKey
+    ? {
+        url: SUPA.url,
+        anonKey: SUPA.anonKey,
+        view: 'respuestas_hh_public',
+        colByQid: Object.fromEntries(COLUMNS.map((c) => [c.qid, c.col])),
+      }
+    : null;
+
 const payload = JSON.stringify({
   cols: TABLE_COLS,
   rows,
   pageSize: 25,
   map: MAP,
   opts: OPTS,
+  remote: REMOTE,
 }).replace(/</g, '\\u003c');
 
 const unitOptionsHtml = OPTS.unidad
@@ -286,6 +304,7 @@ const html = `<!DOCTYPE html>
     <a href="../site/">← Volver al formulario</a>
     ${config.footerText ? `<div>${esc(config.footerText)}</div>` : ''}
     <span class="dash-footer-note">Datos generados el ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC</span>
+    <span class="dash-footer-note" id="dash-live-note">Cargando datos en vivo…</span>
   </footer>
 </div>
 <script>window.HH_DASH = ${payload};</script>
@@ -622,7 +641,67 @@ const html = `<!DOCTYPE html>
   next.addEventListener('click', function () { page++; renderTable(); });
   $('dash-csv').addEventListener('click', exportCsv);
 
+  function refreshYearOptions() {
+    var cur = gY.value;
+    var seen = {};
+    for (var i = 0; i < rows.length; i++) {
+      var y = String(rows[i].f || '').slice(0, 4);
+      if (/^\d{4}$/.test(y)) seen[y] = 1;
+    }
+    var list = Object.keys(seen).sort().reverse();
+    gY.innerHTML = '<option value="">Año: todos</option>' +
+      list.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    if (cur && list.indexOf(cur) !== -1) gY.value = cur;
+  }
+
+  function liveNote(ok, extra) {
+    var note = $('dash-live-note');
+    if (!note) return;
+    note.textContent = ok
+      ? 'Datos en vivo desde Supabase · actualizado ' + new Date().toLocaleTimeString('es-AR')
+      : 'Mostrando datos del último build' + (extra ? ' (' + extra + ')' : '');
+  }
+
+  function loadLive() {
+    var R = D.remote;
+    if (!R || !R.url || !R.anonKey) {
+      liveNote(false, 'Supabase sin configurar en el build');
+      return;
+    }
+    fetch(R.url + '/rest/v1/' + R.view + '?select=*&order=created_at.asc', {
+      headers: { apikey: R.anonKey, Authorization: 'Bearer ' + R.anonKey },
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !data.length) {
+          liveNote(false, 'vista sin filas todavía');
+          return;
+        }
+        rows = data.map(function (rec) {
+          return {
+            f: rec.created_at || '',
+            v: cols.map(function (c) {
+              var col = R.colByQid[c.qid];
+              var x = col ? rec[col] : null;
+              return x == null ? '' : String(x);
+            }),
+          };
+        });
+        D.rows = rows;
+        refreshYearOptions();
+        renderAll();
+        liveNote(true);
+      })
+      .catch(function (e) {
+        liveNote(false, e && e.message);
+      });
+  }
+
   renderAll();
+  loadLive();
 })();
 </script>
 </body>
