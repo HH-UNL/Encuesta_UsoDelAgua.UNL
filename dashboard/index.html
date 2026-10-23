@@ -92,7 +92,7 @@
   </div>
 
   <div class="dash-kpis" id="dash-kpis"></div>
-  <p class="dash-kpi-note">Consumo directo (en la UNL) = inodoro (6 L por uso) + mingitorio (0,5 L por uso) + agua del dispenser + mate/té. Al mes: valor diario × días de asistencia × 4 (mismo criterio que la huella mensual del formulario).</p>
+  <p class="dash-kpi-note">Los KPIs de huella hídrica (diaria y mensual) consideran solo respuestas con «¿Almorzás en el comedor o cantina de la facu?» respondido: si está vacío, la huella no incluye el componente del comedor y quedaría incompleta. · Consumo directo (en la UNL) = inodoro (6 L por uso) + mingitorio (0,5 L por uso) + agua del dispenser + mate/té. Al mes: valor diario × días de asistencia × 4 (mismo criterio que la huella mensual del formulario).</p>
 
   <h2 class="dash-title">Distribución por perfil</h2>
   <div id="dash-perfil"></div>
@@ -137,7 +137,7 @@
   <footer class="hh-footer">
     <a href="../site/">← Volver al formulario</a>
     
-    <span class="dash-footer-note">Datos generados el 2026-10-23 22:41 UTC</span>
+    <span class="dash-footer-note">Datos generados el 2026-10-23 22:58 UTC</span>
     <span class="dash-footer-note" id="dash-live-note">Cargando datos en vivo…</span>
   </footer>
 </div>
@@ -315,8 +315,12 @@
   }
 
   function renderKpis(list, range) {
-    var stD = statsOf(list.map(function (r) { return cell(r, M.huellaD); }));
-    var stM = statsOf(list.map(function (r) { return cell(r, M.huellaM); }));
+    // KPIs de huella: solo respuestas con «¿Almorzás en el comedor…?» respondido.
+    // Si almorza_comedor está vacío/null, la ecuación de huella (q56/q63) no
+    // incluye el componente del comedor → valor incompleto, se excluye del promedio.
+    var huellaRows = list.filter(function (r) { return cell(r, M.comedor) !== ''; });
+    var stD = statsOf(huellaRows.map(function (r) { return cell(r, M.huellaD); }));
+    var stM = statsOf(huellaRows.map(function (r) { return cell(r, M.huellaM); }));
     var dirs = list.map(direct);
     var stDD = statsOf(dirs.map(function (d) { return d.day; }));
     var stDM = statsOf(dirs.map(function (d) { return d.month; }));
