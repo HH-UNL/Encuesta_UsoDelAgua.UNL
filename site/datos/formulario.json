@@ -92,7 +92,7 @@
         {
           "allowZeroCopy": "1",
           "decimalPlaces": "2",
-          "equation": "[{5}+{53}*120+{49}*140]",
+          "equation": "[{5}+{53}*30+{49}*140]",
           "ignoreHiddenFields": "0",
           "insertAsText": "0",
           "newCalculationType": "1",
@@ -107,11 +107,11 @@
         {
           "allowZeroCopy": "1",
           "decimalPlaces": "2",
-          "equation": "[{55}*10/30]",
+          "equation": "[{7}*(1/{16})*(1/4)*10]",
           "ignoreHiddenFields": "0",
           "insertAsText": "0",
           "newCalculationType": "1",
-          "operands": "55",
+          "operands": "7,16",
           "readOnly": "0",
           "replaceText": "",
           "resultField": "55",
@@ -152,11 +152,11 @@
         {
           "allowZeroCopy": "1",
           "decimalPlaces": "2",
-          "equation": "[{68}*(4/30)*2151.31]",
+          "equation": "[{68}*(1/{16})*2151.31]",
           "ignoreHiddenFields": "0",
           "insertAsText": "0",
           "newCalculationType": "1",
-          "operands": "68",
+          "operands": "68,16",
           "readOnly": "0",
           "replaceText": "",
           "resultField": "69",
@@ -4967,7 +4967,7 @@
     },
     {
       "resultField": "54",
-      "equation": "[{5}+{53}*120+{49}*140]",
+      "equation": "[{5}+{53}*30+{49}*140]",
       "decimals": 2,
       "operands": [
         "5",
@@ -4977,10 +4977,11 @@
     },
     {
       "resultField": "55",
-      "equation": "[{55}*10/30]",
+      "equation": "[{7}*(1/{16})*(1/4)*10]",
       "decimals": 2,
       "operands": [
-        "55"
+        "7",
+        "16"
       ]
     },
     {
@@ -5008,10 +5009,11 @@
     },
     {
       "resultField": "69",
-      "equation": "[{68}*(4/30)*2151.31]",
+      "equation": "[{68}*(1/{16})*2151.31]",
       "decimals": 2,
       "operands": [
-        "68"
+        "68",
+        "16"
       ]
     }
   ],

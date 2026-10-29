@@ -1,7 +1,7 @@
 # Resumen de sesión — Proyecto encuesta-HH
 
 > Archivo de contexto para continuar el trabajo en próximas sesiones.
-> Última actualización: 23/10/2026
+> Última actualización: 29/10/2026
 
 ## Objetivo del proyecto
 
@@ -43,6 +43,7 @@ dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en 
 | `scripts/build-dashboard.mjs` | Genera `dashboard/index.html` (KPIs/filtros/tabla en cliente + fetch en vivo desde Supabase) |
 | `policy-anon-insert.sql` | Raíz, trackeada: política RLS de INSERT anónimo en `respuestas_hh` (1 vez en SQL Editor) |
 | `view-anon-select.sql` | Raíz, trackeada: vista pública `respuestas_hh_public` (16 columnas + created_at) para el dashboard (1 vez en SQL Editor) |
+| `recalc-huella.sql` | Raíz, trackeada: recalcula `huella_diaria`/`huella_mensual` con las ecuaciones vigentes (29/10); pegar en SQL Editor |
 | `data/site-config.json` | Config opcional de generación (no creado aún; ver defaults abajo) |
 
 ### Comandos
@@ -61,7 +62,7 @@ npm run dashboard     # genera dashboard/index.html (KPIs + gráficos + tabla)
 El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 
 1. **Multipágina real** — `control_pagebreak`; títulos tomados del primer `head`/`text` de cada página (los `pageInfo` del dueño están desordenados, no usarlos). Textos de botón desde el pagebreak (`Siguiente`/`Atrás`).
-2. **Cálculos Jotform** (`control_calculation` + propiedad `calculations`) — ecuaciones tipo `({3}*6)+({4}*0.5)` con `{qid}`; `resultField` indica destino. Evaluadas en cliente (`templates/app.js`: `evalCalculation`, `topoCalcs`, orden topológico + 2 pasadas). Auto-referencias (qid 55 = `{55}*10/30`) se evalúan como 0. Decimales según `decimalPlaces`. Campos ocultos → `input hidden`; visibles (q56 litros/día, q63 litros/mes) → caja de resultado readonly con `subLabel`.
+2. **Cálculos Jotform** (`control_calculation` + propiedad `calculations`) — ecuaciones tipo `({3}*6)+({4}*0.5)` con `{qid}`; `resultField` indica destino. Evaluadas en cliente (`templates/app.js`: `evalCalculation`, `topoCalcs`, orden topológico + 2 pasadas). Auto-referencias (el caso clásico era qid 55 = `{55}*10/30`) se evalúan como 0; **desde 29/10 q55 ya no se auto-referencia** (ver sección «Cálculos de huella»). Decimales según `decimalPlaces`. Campos ocultos → `input hidden`; visibles (q56 litros/día, q63 litros/mes) → caja de resultado readonly con `subLabel`.
 3. **Condiciones** (propiedad `conditions`, JSON string anidado) — 5 reglas de Jotform: hide si Género=Femenino (mingitorio q4), disable/requerido q68 si q67=No, hideMultiple [53,49] si infusiones=Ninguna, show 49 si=Café, hide 68 si=No. **+1 inyectada (22/10)** vía `EXTRA_CONDITIONS` en generate-site.mjs: show q68 si q67=Sí (q68 «veces por semana en comedor» solo visible si q67=Sí; arranca oculta porque ahora es target de Show). Motor: `applyConditions()` en app.js; campos con acción `Show` arrancan ocultos; `clearOnHide` respetado (actualmente `false`).
 4. **Bloques informativos** `control_text` — se conserva el **HTML crudo** (`extra.html`) con imágenes hotlinkeadas a `www.jotform.com/uploads/...`.
 5. **Escalas** — `scaleFrom` + `scaleAmount` → rango real (q16: 0–6; q18: 0–14). q16 se renderiza como **escala de botones** (radios 0–6, quitada del slider el 22/10); q18 sigue como **slider** (`input type=range`) vía `SLIDER_SCALE_QIDS` en generate-site.mjs (ahora solo `'18'`); el valor del slider se muestra debajo en `--hh-muted` y se recalcula en `input`. Conservan `id=f-{qid}` y `name` originales para cálculos/submit.
@@ -73,7 +74,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 
 ### Verificación
 
-- `scripts/check-calcs.mjs`: **725/735** resultados históricos reproducen las ecuaciones actuales. Las ~10 discrepancias son de respuestas viejas hechas con fórmulas anteriores (el dueño editó ecuaciones) — no es bug.
+- `scripts/check-calcs.mjs`: **725/735** resultados históricos reproducen las ecuaciones actuales (medido antes del 29/10). Tras los cambios de 29/10 marcará discrepancias en ~131 valores de `huella_diaria` y ~127 de `huella_mensual`: esos valores se guardaron con las fórmulas viejas y se corrigen ejecutando `recalc-huella.sql` en Supabase (el JSON local `data/submissions.json` sigue con los valores históricos).
 - Extracción de respuestas corregida: usar `prettyFormat` → `answer` (si la clave existe) → `''`. Nunca hacer fallback al objeto entero (generaba ruido tipo "huellaDe, 34, ...").
 - Servidor smoke-test OK: `/`, `/respuestas.html`, `/styles.css`, `/app.js`, `/respuestas.js`, `/datos/*.json` → 200.
 
@@ -93,6 +94,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Config por defecto de generación: `submitMode: "supabase"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
 - ✅ **23/10 — envío independiente a Supabase (verificado con el usuario)**: la web ya no envía a Jotform. Hecho: política de solo INSERT aplicada en Supabase (probada con INSERT vía API → 201), `SUPABASE_ANON_KEY` en `.env` (208 chars, embebida en `site/index.html`), `npm run generate` OK, envío real desde :8080 → fila visible en Table Editor. `scripts/serve.mjs` ahora manda `Cache-Control: no-cache` (antes el navegador cacheaba la versión vieja). La política vive en `policy-anon-insert.sql` (raíz, trackeada; `data/` es gitignore).
 - ✅ **Despliegues 23/10 verificados en Pages**: `c334c47` site en modo supabase → `2cc1074` dashboard con datos en vivo → `e44b071` docs → `afc73e9` filtro de huella (último). Cada push verificado con 200 y contenido esperado tras ~1 min de rebuild.
+- ✅ **29/10 — ecuaciones de huella ajustadas**: mate `120 → 30` (qid 54), qid 55 (papel) pasa de auto-referencia a `copias_mes × (1/dias_semana) × (1/4) × 10` y qid 69 (comedor) a `veces_comedor_semana × (1/dias_semana) × 2151.31`. Editado en `data/raw/properties.json` + `data/form-structure.json`, `site/` regenerado, `recalc-huella.sql` creado y todo commiteado/pusheado a GitHub (Pages re-build). **Pendiente del usuario**: pegar `recalc-huella.sql` en el SQL Editor para actualizar las columnas de las filas existentes.
 
 ## Despliegue (22–23/10)
 
@@ -109,7 +111,31 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - **RLS activa**: la web puede **INSERTar** con la anon key gracias a la política `policy-anon-insert.sql` (`for insert to anon with check (true)`, aplicada el 23/10 y verificada con INSERT → 201). La tabla base **no es legible** para anon (SELECT → `[]`, verificado). Lectura pública: solo vía la vista `respuestas_hh_public` (ver sección Dashboard).
 - Carga del histórico: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor. **Desde 23/10 NO trunca por defecto** (`INSERT … ON CONFLICT DO NOTHING`) para no borrar las filas que la web captura directo; `--truncate` restaura el comportamiento viejo. La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
-- `data/` es gitignore completo → SQL/CSV exportados nunca van al repo ni a Pages. Los SQL de setup **sí se commitean** y viven en la raíz: `policy-anon-insert.sql` y `view-anon-select.sql`.
+- `data/` es gitignore completo → SQL/CSV exportados nunca van al repo ni a Pages. Los SQL de setup **sí se commitean** y viven en la raíz: `policy-anon-insert.sql`, `view-anon-select.sql` y `recalc-huella.sql`.
+
+## Cálculos de huella hídrica (29/10)
+
+Tres ecuaciones cambiadas a pedido del usuario; válidas para las respuestas nuevas (web) y para el recálculo de las existentes (Supabase):
+
+| qid | Resultado | Ecuación nueva | Antes |
+|---|---|---|---|
+| 54 | Huella de consumo de bebidas | `{5} + {53}*30 + {49}*140` | factor de mate `*120` |
+| 55 | Huella de hábitos y uso de papel | `{7}*(1/{16})*(1/4)*10` (copias_mes × 1/días_semana × 1/4 × 10) | `{55}*10/30` (auto-referencial → siempre 0) |
+| 69 | Huella diaria de almuerzos | `{68}*(1/{16})*2151.31` | `{68}*(4/30)*2151.31` |
+
+Derivadas (misma forma, componentes nuevos):
+
+- **huella_diaria (56)** = `55 + 54 + 8 + 69`
+- **huella_mensual (63)** = `(8 + 54 + 55) × dias_semana × 4 + veces_comedor_semana × 4 × 2151.31`
+- componente **8** (sanitario) = `inodoro_dia×6 + mingitorio_dia×0.5` (sin cambios)
+
+Detalles de comportamiento: con `dias_semana` vacío o 0, los componentes 55 y 69 quedan en **0** (en el navegador `1/0` es no-finito y `evalCalculation` devuelve 0; en `recalc-huella.sql` lo replica un `CASE ... = 0`). Redondeo a 2 decimales (`decimalPlaces: 2`).
+
+Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 copias: bloque `structure` y bloque `calculations` top-level) y `site/` regenerado con `npm run generate` (actualiza `window.HH_CONFIG` en `site/index.html` y `site/datos/formulario.json`).
+
+⚠️ **`npm run fetch` revierte estos cambios**: `data/` es gitignore y el fetch vuelve a bajar las ecuaciones de Jotform. Para que persistan hay que cambiar las mismas 3 fórmulas en el formulario original de Jotform, o agregar un override tipo `EQUATION_OVERRIDES` en `scripts/generate-site.mjs` (mismo criterio que `NUMBER_LIMITS`/`EXTRA_CONDITIONS`).
+
+**Supabase**: `recalc-huella.sql` (raíz, trackeada) recalcula `huella_diaria` y `huella_mensual` de todas las filas con las ecuaciones nuevas, **preservando los NULL originales** (no rellena filas sin huella). Idempotente; se ejecuta en el SQL Editor (la anon key solo puede INSERT). Estimado sobre el histórico local de 137: cambian **131** huella_diaria y **127** huella_mensual.
 
 ## Dashboard público (22/10, refactorizado 23/10)
 
@@ -140,6 +166,9 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - [x] ~~Dashboard lee solo el histórico local~~ — hecho 23/10: fetch en vivo desde la vista `respuestas_hh_public` con fallback al build (ver sección Dashboard).
 - [x] ~~Limpieza en Supabase: filas de prueba~~ — hecho 23/10: verificado que la vista no tiene filas posteriores al 12/10 (la fila `status='test'` y las respuestas de prueba de la web fueron borradas por el usuario); vistas las 134 finales.
 - [x] ~~Descuadre 134 vs 137~~ — resuelto 23/10: el usuario **borró a propósito 3 filas con errores de datos**; Supabase queda en 134 (vista) y el histórico local en 137. ⚠️ **No re-importar con `export-supabase`** sin revisar: el `ON CONFLICT DO NOTHING` no distinguiría filas borradas por error de las que faltan y **resucitaría** las 3 filas malas. Si algún día hace falta re-importar, filtrar antes esas submission_id en el SQL.
+- [ ] Ejecutar `recalc-huella.sql` en el SQL Editor de Supabase (columnas `huella_diaria`/`huella_mensual` con las ecuaciones del 29/10) y revisar el SELECT final de verificación.
+- [ ] Replicar las 3 ecuaciones nuevas en Jotform **o** crear `EQUATION_OVERRIDES` en `scripts/generate-site.mjs`, para que `npm run fetch` no revierta los cambios del 29/10.
+- [ ] (opcional) Recalcular los campos 55/69/56/63 en `data/submissions.json` local para que `check-calcs.mjs` y los exports (`export-supabase`, dashboard fallback) coincidan con las ecuaciones nuevas.
 
 ## Notas técnicas para continuar
 
