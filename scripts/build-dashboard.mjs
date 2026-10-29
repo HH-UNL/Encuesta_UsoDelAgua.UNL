@@ -45,7 +45,30 @@ if (!fs.existsSync(submissionsPath)) {
 
 const structure = JSON.parse(fs.readFileSync(structurePath, 'utf8'));
 const submissionsData = JSON.parse(fs.readFileSync(submissionsPath, 'utf8'));
-const subs = submissionsData.submissions || submissionsData || [];
+let subs = submissionsData.submissions || submissionsData || [];
+let dataSource = `data/submissions.json (${subs.length} filas, histórico Jotform)`;
+
+// Desde 23/10 las respuestas nuevas viven solo en Supabase: si hay un
+// snapshot local (npm run fetch-supabase) y no está atrasado, se usan sus
+// filas embebidas en lugar del histórico de Jotform (queda desfasado).
+const snapshotPath = path.join(DATA_DIR, 'respuestas_supabase.json');
+if (fs.existsSync(snapshotPath)) {
+  try {
+    const snap = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+    if (Array.isArray(snap.rows) && snap.rows.length >= subs.length) {
+      subs = snap.rows.map((r) => ({
+        created_at: r.created_at || '',
+        fields: COLUMNS.map((c) => ({ qid: c.qid, value: r[c.col] == null ? '' : r[c.col] })),
+      }));
+      dataSource = `snapshot Supabase ${String(snap.fetched_at || '').slice(0, 16)} (${subs.length} filas)`;
+    } else if (Array.isArray(snap.rows)) {
+      dataSource += ` · snapshot descartado (${snap.rows.length} filas)`;
+    }
+  } catch (e) {
+    console.warn('  ! data/respuestas_supabase.json ilegible; uso el histórico local:', e.message);
+  }
+}
+console.log(`· Fuente de filas: ${dataSource}`);
 
 function readJson(file) {
   try {

@@ -2,7 +2,7 @@
 data/
 node_modules/
 
-# Datos personales de las 137 respuestas — nunca publicar (para Supabase se usan los archivos locales de data/)
+# Datos personales de las respuestas (histórico Jotform + snapshot de Supabase) — nunca publicar; se usan los archivos locales de data/
 site/respuestas.html
 site/respuestas.js
 site/datos/submissions.json

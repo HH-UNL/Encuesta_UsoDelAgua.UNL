@@ -103,6 +103,11 @@ mostrar también las respuestas que llegan por la web, **sin regenerar nada**.
 La vista expone solo las 16 columnas del dashboard + `created_at`; si el fetch
 falla, la página se queda con los datos embebidos del último build.
 
+Como las respuestas nuevas ya no llegan a Jotform, el histórico local queda
+desfasado (137 vs las reales en Supabase). `npm run fetch-supabase` baja un
+snapshot de la vista a `data/respuestas_supabase.json` y, si existe y no está
+atrasado, `npm run dashboard` embebe esas filas en lugar de las de Jotform.
+
 ## Limitaciones
 
 - **Pagos y CAPTCHA** no se replican (Jotform los gestiona en su servidor); se muestra un aviso en su lugar.

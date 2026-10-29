@@ -17,7 +17,7 @@ Conectar con la API de Jotform, extraer la **estructura** y las **respuestas** d
 | Credenciales | En `.env` (gitignored) — API key + form ID. Ver `.env.example` |
 | Campos | 39 preguntas (35 renderizables + 8 pagebreaks + button) |
 | Páginas | 9 (8 cortes `control_pagebreak`) |
-| Respuestas | 137 descargadas de Jotform · **134 en Supabase** (el usuario borró 3 filas con errores de datos el 23/10) |
+| Respuestas | 137 descargadas de Jotform (histórico **congelado desde 23/10**: los envíos ya no llegan a Jotform) · **187 en Supabase** a 29/10 (134 del histórico − 3 borradas el 23/10 + nuevas por la web) |
 
 ## Arquitectura (pipeline)
 
@@ -33,6 +33,7 @@ dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en 
 |---|---|
 | `.env` | `JOTFORM_API_KEY`, `JOTFORM_FORM_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (nunca commitear) |
 | `scripts/fetch-jotform.mjs` | Descarga detalles, preguntas, propiedades, cálculos, condiciones y todas las respuestas (paginado, 100/página). Normaliza a `data/form-structure.json` + `data/submissions.json`; crudos en `data/raw/` |
+| `scripts/fetch-supabase.mjs` | Snapshot de la vista pública → `data/respuestas_supabase.json` (187 filas a 29/10). Lo usa `build-dashboard.mjs` para embeber las filas reales en vez del histórico Jotform (137) |
 | `scripts/generate-site.mjs` | Genera `site/` (index.html, styles.css, app.js, respuestas.html/js, datos/) |
 | `templates/styles.css`, `templates/app.js` | Plantillas base copiadas a `site/` con tokens (`__ACCENT__`) |
 | `docs/HuellaHidrica.png` | Imagen original del footprint (1.3 MB, fondo negro) — **la que se usa**: el generador la copia a `site/assets/HuellaHidrica.png` y sirve de marca de agua (`body::before`, opacidad 0.8, tamaño `auto 100vh` — el alto llena la pantalla y el ancho escala por proporción) |
@@ -49,7 +50,8 @@ dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en 
 ### Comandos
 
 ```bash
-npm run fetch      # descargar datos de Jotform
+npm run fetch      # descargar datos de Jotform (estructura; respuestas = histórico congelado)
+npm run fetch-supabase  # snapshot de Supabase → data/respuestas_supabase.json (filas reales)
 npm run generate   # generar site/
 npm run build      # fetch + generate
 npm run serve      # http://localhost:8080
@@ -94,7 +96,8 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Config por defecto de generación: `submitMode: "supabase"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
 - ✅ **23/10 — envío independiente a Supabase (verificado con el usuario)**: la web ya no envía a Jotform. Hecho: política de solo INSERT aplicada en Supabase (probada con INSERT vía API → 201), `SUPABASE_ANON_KEY` en `.env` (208 chars, embebida en `site/index.html`), `npm run generate` OK, envío real desde :8080 → fila visible en Table Editor. `scripts/serve.mjs` ahora manda `Cache-Control: no-cache` (antes el navegador cacheaba la versión vieja). La política vive en `policy-anon-insert.sql` (raíz, trackeada; `data/` es gitignore).
 - ✅ **Despliegues 23/10 verificados en Pages**: `c334c47` site en modo supabase → `2cc1074` dashboard con datos en vivo → `e44b071` docs → `afc73e9` filtro de huella (último). Cada push verificado con 200 y contenido esperado tras ~1 min de rebuild.
-- ✅ **29/10 — ecuaciones de huella ajustadas**: mate `120 → 30` (qid 54), qid 55 (papel) pasa de auto-referencia a `copias_mes × (1/dias_semana) × (1/4) × 10` y qid 69 (comedor) a `veces_comedor_semana × (1/dias_semana) × 2151.31`. Editado en `data/raw/properties.json` + `data/form-structure.json`, `site/` regenerado, `recalc-huella.sql` (recálculo **total**: pisa los valores viejos y completa las filas NULL) creado y todo commiteado/pusheado a GitHub (Pages re-build). **Pendiente del usuario**: pegar `recalc-huella.sql` en el SQL Editor para reemplazar los valores con error de cálculo de las 134 filas.
+- ✅ **29/10 — ecuaciones de huella ajustadas**: mate `120 → 30` (qid 54), qid 55 (papel) pasa de auto-referencia a `copias_mes × (1/dias_semana) × (1/4) × 10` y qid 69 (comedor) a `veces_comedor_semana × (1/dias_semana) × 2151.31`. Editado en `data/raw/properties.json` + `data/form-structure.json`, `site/` regenerado, `recalc-huella.sql` (recálculo **total**: pisa los valores viejos y completa las filas NULL) creado y todo commiteado/pusheado a GitHub (Pages re-build). **Pendiente del usuario**: pegar `recalc-huella.sql` en el SQL Editor para reemplazar los valores con error de cálculo de las **187** filas.
+- ✅ **29/10 — local/docs sincronizados con las 187 de Supabase**: creado `scripts/fetch-supabase.mjs` (`npm run fetch-supabase` → `data/respuestas_supabase.json`, snapshot de la vista pública) y `build-dashboard.mjs` ahora prefiere ese snapshot sobre `data/submissions.json` (137, histórico Jotform) cuando no está atrasado. Dashboard regenerado: **187 respuestas · 2026-06-03 → 2026-10-29**. ⚠️ Verificado el 29/10 contra la vista: **167 de 185 filas con huella siguen con la fórmula vieja** → aún falta correr `recalc-huella.sql`; después repetir `npm run fetch-supabase && npm run dashboard` para que el build embeja los valores nuevos.
 
 ## Despliegue (22–23/10)
 
@@ -107,7 +110,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 ## Base de datos Supabase (22/10)
 
 - Proyecto Supabase: `Encuesta_UsoDelAgua.UNL` (ref `dnyhvtpgdjyqlpoprtlc`, us-east-1).
-- Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). Carga inicial: **137 filas**; hoy **134** (el usuario borró 3 con errores de datos el 23/10).
+- Tabla **`public.respuestas_hh`**: `submission_id` (pk) + `created_at` + `status` + 16 columnas de respuestas (`unidad_academica`, `genero`, `vinculo_unl`, `dias_semana`, `horas_dia`, `inodoro_dia`, `mingitorio_dia`, `litros_dispenser`, `infusiones`, `litros_mate`, `tazas_cafe`, `almorza_comedor`, `veces_comedor_semana`, `copias_mes`, `huella_diaria`, `huella_mensual`). Carga inicial: **137 filas**; **134** tras el borrado del 23/10 (3 filas con errores de datos); **187 a 29/10** (53 nuevas por la web). `npm run fetch` **no** actualiza el local: Jotform dejó de recibir envíos el 23/10.
 - **RLS activa**: la web puede **INSERTar** con la anon key gracias a la política `policy-anon-insert.sql` (`for insert to anon with check (true)`, aplicada el 23/10 y verificada con INSERT → 201). La tabla base **no es legible** para anon (SELECT → `[]`, verificado). Lectura pública: solo vía la vista `respuestas_hh_public` (ver sección Dashboard).
 - Carga del histórico: `npm run export-supabase` genera `data/respuestas_hh.sql` (+ `.csv`) desde `data/submissions.json`; ejecutarlo en el SQL Editor. **Desde 23/10 NO trunca por defecto** (`INSERT … ON CONFLICT DO NOTHING`) para no borrar las filas que la web captura directo; `--truncate` restaura el comportamiento viejo. La primera carga se hizo vía Management API con un PAT (ya **eliminado** por el usuario después del uso).
 - `scripts/export-supabase.mjs` mapea qid→columna con `COLUMNS` explícito (16 campos; excluye head/text/pagebreak/cálculos ocultos). IP NO se subió: queda solo en `data/submissions.json` local.
@@ -150,6 +153,7 @@ Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 
 - **Filtro de huella en KPIs (23/10)**: los KPIs «Huella diaria/promedio» y «Huella mensual/promedio» excluyen las respuestas con `almorza_comedor` NULL/vacío (72 de 134 filas): la ecuación q56/q63 depende de q68 (veces en comedor), que a su vez depende de q67 → sin q67 la huella queda incompleta (sin componente comedor). Efecto: 352,02 → **271,25 L/día** (n=62) y 6.958 → **6.017,93 L/mes** (n=62); además saca del promedio un outlier de 17.487 L/día con comedor null. El resto del dashboard (totales, perfil, hábitos, tabla, consumo directo) sigue contando las 134. Nota metodológica en `dash-kpi-note`. Código: `renderKpis()` en `scripts/build-dashboard.mjs` (`huellaRows = list.filter(cell(r,M.comedor) !== '')`).
 - **Datos en vivo (23/10)**: al cargar, la página consulta la vista pública `public.respuestas_hh_public` (`view-anon-select.sql`, raíz; `grant select to anon`) con la anon key embebida (`window.HH_DASH.remote`) → `GET /rest/v1/respuestas_hh_public?select=*&order=created_at.asc`. Así el dashboard muestra **también las respuestas que llegan por la web, sin rebuild**. Si falla o la vista está vacía → fallback a las filas embebidas del build + nota en el pie (`#dash-live-note`: «Datos en vivo…» vs «Mostrando datos del último build»). `refreshYearOptions()` reconstruye el selector de años tras el fetch. La vista expone **solo** created_at + las 16 columnas del dashboard (sin submission_id/status, verificado); la tabla base con anon sigue devolviendo `[]` (verificado). Verificado 23/10: vista → 200 con 134 filas. Mapping qid→columna compartido via `HH_DASH.remote.colByQid` (los 16 qids de TABLE_COLS == COLUMNS, coincidencia 1:1 verificada). Lectura de `.env` compartida en `scripts/env.mjs` (`supabaseConfig(root)`, la usan generate-site y build-dashboard).
 - `scripts/serve.mjs` ahora sirve además `/dashboard/` y el alias `/site/*` (rutas locales iguales a Pages).
+- **Filas embebidas desde Supabase (29/10)**: `npm run fetch-supabase` guarda `data/respuestas_supabase.json` (snapshot de la vista, 187 filas) y `build-dashboard.mjs` lo prefiere sobre `data/submissions.json` (137, histórico Jotform) cuando no está atrasado — así el fallback del build también muestra las respuestas de la web. Log del build: `· Fuente de filas: snapshot Supabase <fecha> (187 filas)`. `data/` es gitignore → el snapshot nunca se publica.
 - ⚠️ La **tabla individual de respuestas queda pública** para cualquiera con la URL (decisión del usuario del 22/10; `site/respuestas.html` sigue fuera de Pages).
 - **Desplegado y verificado 22–23/10**: builds de Pages verificados tras cada push — `8dae8d6`→`920a534` (22/10, dashboard inicial e indicador) y `c334c47`→`2cc1074`→`e44b071`→`afc73e9` (23/10, modo supabase, datos en vivo, filtro de huella; el último es el HEAD). `/dashboard/` → 200 (~49 KB, 5 KPIs, filtro de huella activo), sin IP/submission_id/status en el HTML publicado.
 - Regenerar tras cada `npm run fetch`; commit + push para actualizar Pages (~1 min rebuild).
@@ -166,9 +170,10 @@ Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 
 - [x] ~~Dashboard lee solo el histórico local~~ — hecho 23/10: fetch en vivo desde la vista `respuestas_hh_public` con fallback al build (ver sección Dashboard).
 - [x] ~~Limpieza en Supabase: filas de prueba~~ — hecho 23/10: verificado que la vista no tiene filas posteriores al 12/10 (la fila `status='test'` y las respuestas de prueba de la web fueron borradas por el usuario); vistas las 134 finales.
 - [x] ~~Descuadre 134 vs 137~~ — resuelto 23/10: el usuario **borró a propósito 3 filas con errores de datos**; Supabase queda en 134 (vista) y el histórico local en 137. ⚠️ **No re-importar con `export-supabase`** sin revisar: el `ON CONFLICT DO NOTHING` no distinguiría filas borradas por error de las que faltan y **resucitaría** las 3 filas malas. Si algún día hace falta re-importar, filtrar antes esas submission_id en el SQL.
-- [ ] Ejecutar `recalc-huella.sql` en el SQL Editor de Supabase: **recálculo total** de `huella_diaria`/`huella_mensual` (pisa los valores viejos y completa las filas NULL) y revisar el SELECT final de verificación.
+- [ ] Ejecutar `recalc-huella.sql` en el SQL Editor de Supabase: **recálculo total** de `huella_diaria`/`huella_mensual` de las **187** filas (pisa los valores viejos y completa las filas NULL) y revisar el SELECT final de verificación.
+- [ ] Después del recalc: `npm run fetch-supabase && npm run dashboard` para que el build embeja los valores nuevos (hoy el snapshot trae 167 filas con la fórmula vieja) y commitear.
 - [ ] Replicar las 3 ecuaciones nuevas en Jotform **o** crear `EQUATION_OVERRIDES` en `scripts/generate-site.mjs`, para que `npm run fetch` no revierta los cambios del 29/10.
-- [ ] (opcional) Recalcular los campos 55/69/56/63 en `data/submissions.json` local para que `check-calcs.mjs` y los exports (`export-supabase`, dashboard fallback) coincidan con las ecuaciones nuevas.
+- [ ] (opcional) Recalcular los campos 55/69/56/63 en `data/submissions.json` local para que `check-calcs.mjs` y `export-supabase` coincidan con las ecuaciones nuevas (el fallback del dashboard ya usa el snapshot de Supabase, no este archivo).
 
 ## Notas técnicas para continuar
 
