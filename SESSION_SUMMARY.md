@@ -43,7 +43,7 @@ dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en 
 | `scripts/build-dashboard.mjs` | Genera `dashboard/index.html` (KPIs/filtros/tabla en cliente + fetch en vivo desde Supabase) |
 | `policy-anon-insert.sql` | Raíz, trackeada: política RLS de INSERT anónimo en `respuestas_hh` (1 vez en SQL Editor) |
 | `view-anon-select.sql` | Raíz, trackeada: vista pública `respuestas_hh_public` (16 columnas + created_at) para el dashboard (1 vez en SQL Editor) |
-| `recalc-huella.sql` | Raíz, trackeada: recalcula `huella_diaria`/`huella_mensual` con las ecuaciones vigentes (29/10); pegar en SQL Editor |
+| `recalc-huella.sql` | Raíz, trackeada: **recálculo total** de `huella_diaria`/`huella_mensual` con las ecuaciones vigentes (29/10); pegar en SQL Editor |
 | `data/site-config.json` | Config opcional de generación (no creado aún; ver defaults abajo) |
 
 ### Comandos
@@ -94,7 +94,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - Config por defecto de generación: `submitMode: "supabase"`, `accentColor: "#005875"`, `showResponsesPage: true`, `lang: "es"`.
 - ✅ **23/10 — envío independiente a Supabase (verificado con el usuario)**: la web ya no envía a Jotform. Hecho: política de solo INSERT aplicada en Supabase (probada con INSERT vía API → 201), `SUPABASE_ANON_KEY` en `.env` (208 chars, embebida en `site/index.html`), `npm run generate` OK, envío real desde :8080 → fila visible en Table Editor. `scripts/serve.mjs` ahora manda `Cache-Control: no-cache` (antes el navegador cacheaba la versión vieja). La política vive en `policy-anon-insert.sql` (raíz, trackeada; `data/` es gitignore).
 - ✅ **Despliegues 23/10 verificados en Pages**: `c334c47` site en modo supabase → `2cc1074` dashboard con datos en vivo → `e44b071` docs → `afc73e9` filtro de huella (último). Cada push verificado con 200 y contenido esperado tras ~1 min de rebuild.
-- ✅ **29/10 — ecuaciones de huella ajustadas**: mate `120 → 30` (qid 54), qid 55 (papel) pasa de auto-referencia a `copias_mes × (1/dias_semana) × (1/4) × 10` y qid 69 (comedor) a `veces_comedor_semana × (1/dias_semana) × 2151.31`. Editado en `data/raw/properties.json` + `data/form-structure.json`, `site/` regenerado, `recalc-huella.sql` creado y todo commiteado/pusheado a GitHub (Pages re-build). **Pendiente del usuario**: pegar `recalc-huella.sql` en el SQL Editor para actualizar las columnas de las filas existentes.
+- ✅ **29/10 — ecuaciones de huella ajustadas**: mate `120 → 30` (qid 54), qid 55 (papel) pasa de auto-referencia a `copias_mes × (1/dias_semana) × (1/4) × 10` y qid 69 (comedor) a `veces_comedor_semana × (1/dias_semana) × 2151.31`. Editado en `data/raw/properties.json` + `data/form-structure.json`, `site/` regenerado, `recalc-huella.sql` (recálculo **total**: pisa los valores viejos y completa las filas NULL) creado y todo commiteado/pusheado a GitHub (Pages re-build). **Pendiente del usuario**: pegar `recalc-huella.sql` en el SQL Editor para reemplazar los valores con error de cálculo de las 134 filas.
 
 ## Despliegue (22–23/10)
 
@@ -135,7 +135,7 @@ Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 
 
 ⚠️ **`npm run fetch` revierte estos cambios**: `data/` es gitignore y el fetch vuelve a bajar las ecuaciones de Jotform. Para que persistan hay que cambiar las mismas 3 fórmulas en el formulario original de Jotform, o agregar un override tipo `EQUATION_OVERRIDES` en `scripts/generate-site.mjs` (mismo criterio que `NUMBER_LIMITS`/`EXTRA_CONDITIONS`).
 
-**Supabase**: `recalc-huella.sql` (raíz, trackeada) recalcula `huella_diaria` y `huella_mensual` de todas las filas con las ecuaciones nuevas, **preservando los NULL originales** (no rellena filas sin huella). Idempotente; se ejecuta en el SQL Editor (la anon key solo puede INSERT). Estimado sobre el histórico local de 137: cambian **131** huella_diaria y **127** huella_mensual.
+**Supabase (recálculo total, decisión del usuario 29/10)**: `recalc-huella.sql` (raíz, trackeada) recalcula `huella_diaria` y `huella_mensual` de **todas** las filas con las ecuaciones nuevas — pisa los valores viejos (calculados con mate ×120, q55 en 0 y comedor ×4/30) y también completa las filas que estaban NULL. **No** elimina ni renombra columnas: así la vista `respuestas_hh_public` del dashboard sigue funcionando y desaparecen los valores con error de cálculo. Idempotente; se ejecuta en el SQL Editor (la anon key solo puede INSERT). Estimado sobre el histórico local de 137 filas: **131** huella_diaria y **127** huella_mensual cambian de valor, **3** filas pasan de NULL a valor, promedios resultantes **331,16 L/día** y **4.880,10 L/mes** (en Supabase se aplican a las 134 filas).
 
 ## Dashboard público (22/10, refactorizado 23/10)
 
@@ -166,7 +166,7 @@ Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 
 - [x] ~~Dashboard lee solo el histórico local~~ — hecho 23/10: fetch en vivo desde la vista `respuestas_hh_public` con fallback al build (ver sección Dashboard).
 - [x] ~~Limpieza en Supabase: filas de prueba~~ — hecho 23/10: verificado que la vista no tiene filas posteriores al 12/10 (la fila `status='test'` y las respuestas de prueba de la web fueron borradas por el usuario); vistas las 134 finales.
 - [x] ~~Descuadre 134 vs 137~~ — resuelto 23/10: el usuario **borró a propósito 3 filas con errores de datos**; Supabase queda en 134 (vista) y el histórico local en 137. ⚠️ **No re-importar con `export-supabase`** sin revisar: el `ON CONFLICT DO NOTHING` no distinguiría filas borradas por error de las que faltan y **resucitaría** las 3 filas malas. Si algún día hace falta re-importar, filtrar antes esas submission_id en el SQL.
-- [ ] Ejecutar `recalc-huella.sql` en el SQL Editor de Supabase (columnas `huella_diaria`/`huella_mensual` con las ecuaciones del 29/10) y revisar el SELECT final de verificación.
+- [ ] Ejecutar `recalc-huella.sql` en el SQL Editor de Supabase: **recálculo total** de `huella_diaria`/`huella_mensual` (pisa los valores viejos y completa las filas NULL) y revisar el SELECT final de verificación.
 - [ ] Replicar las 3 ecuaciones nuevas en Jotform **o** crear `EQUATION_OVERRIDES` en `scripts/generate-site.mjs`, para que `npm run fetch` no revierta los cambios del 29/10.
 - [ ] (opcional) Recalcular los campos 55/69/56/63 en `data/submissions.json` local para que `check-calcs.mjs` y los exports (`export-supabase`, dashboard fallback) coincidan con las ecuaciones nuevas.
 
