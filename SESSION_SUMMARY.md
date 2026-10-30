@@ -32,14 +32,15 @@ dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en 
 | Ruta | Función |
 |---|---|
 | `.env` | `JOTFORM_API_KEY`, `JOTFORM_FORM_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (nunca commitear) |
-| `scripts/fetch-jotform.mjs` | Descarga detalles, preguntas, propiedades, cálculos, condiciones y todas las respuestas (paginado, 100/página). Normaliza a `data/form-structure.json` + `data/submissions.json`; crudos en `data/raw/` |
+| `scripts/fetch-jotform.mjs` | Descarga detalles, preguntas, propiedades, cálculos, condiciones y todas las respuestas (paginado, 100/página). Normaliza a `data/form-structure.json` + `data/submissions.json`; crudos en `data/raw/`. **Con cache local** (`data/cache/jotform.json`, TTL 24 h): `npm run fetch` reutiliza y `npm run fetch:refresh` re-descarga |
 | `scripts/fetch-supabase.mjs` | Snapshot de la vista pública → `data/respuestas_supabase.json` (187 filas a 29/10). Lo usa `build-dashboard.mjs` para embeber las filas reales en vez del histórico Jotform (137) |
 | `scripts/generate-site.mjs` | Genera `site/` (index.html, styles.css, app.js, respuestas.html/js, datos/) |
 | `templates/styles.css`, `templates/app.js` | Plantillas base copiadas a `site/` con tokens (`__ACCENT__`) |
 | `docs/HuellaHidrica.png` | Imagen original del footprint (1.3 MB, fondo negro) — **la que se usa**: el generador la copia a `site/assets/HuellaHidrica.png` y sirve de marca de agua (`body::before`, opacidad 0.8, tamaño `auto 100vh` — el alto llena la pantalla y el ancho escala por proporción) |
 | `docs/HuellaHidrica-mark.png` | Versión 800 px con fondo transparente (452 KB) — generada el 19/10 pero **no en uso** (queda como fallback si falta el original) |
 | `scripts/serve.mjs` | Servidor estático mínimo (puerto 8080; sirve `/`, `/site/*`, `/dashboard/`; manda `Cache-Control: no-cache`) |
-| `scripts/check-calcs.mjs` | Verifica ecuaciones contra respuestas históricas |
+| `scripts/calculations.mjs` | `EQUATION_OVERRIDES` (las 3 ecuaciones del 29/10) + helpers (`applyEquationOverrides`, `topoCalcs`, `evalEquation`) compartidos por generate-site y recalc-local |
+| `scripts/recalc-local.mjs` | Recalcula los campos de cálculo de `data/submissions.json` con las ecuaciones vigentes y verifica que todos los valores almacenados las reproduzcan (`npm run recalc-local`; `--dry-run` para informar) |
 | `scripts/env.mjs` | Lectura de `.env` compartida (`supabaseConfig(root)`) — la usan generate-site y build-dashboard |
 | `scripts/build-dashboard.mjs` | Genera `dashboard/index.html` (KPIs/filtros/tabla en cliente + fetch en vivo desde Supabase) |
 | `policy-anon-insert.sql` | Raíz, trackeada: política RLS de INSERT anónimo en `respuestas_hh` (1 vez en SQL Editor) |
@@ -50,7 +51,9 @@ dashboard/          <--SELECT vista--  Supabase public.respuestas_hh_public (en 
 ### Comandos
 
 ```bash
-npm run fetch      # descargar datos de Jotform (estructura; respuestas = histórico congelado)
+npm run fetch      # descargar datos de Jotform (usa el cache local si tiene <24 h)
+npm run fetch:refresh  # ignorar el cache y re-descargar todo desde la API
+npm run recalc-local   # recalcular huella en data/submissions.json con las ecuaciones vigentes
 npm run fetch-supabase  # snapshot de Supabase → data/respuestas_supabase.json (filas reales)
 npm run generate   # generar site/
 npm run build      # fetch + generate
@@ -76,7 +79,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 
 ### Verificación
 
-- `scripts/check-calcs.mjs`: **725/735** resultados históricos reproducen las ecuaciones actuales (medido antes del 29/10). Tras los cambios de 29/10 sigue marcando discrepancias en ~131 valores de `huella_diaria` y ~127 de `huella_mensual`, pero **solo porque lee el JSON local** (`data/submissions.json`, valores históricos); en Supabase ya se corrigió con `recalc-huella.sql` (29/10, verificado 187/187). Para que la verificación local vuelva a cuadrar hay que recalcular ese JSON (pendiente opcional).
+- `scripts/recalc-local.mjs` (antes `check-calcs.mjs`, borrado 29/10): recalcula qid 8/54/55/56/63/69 en `data/submissions.json` con las ecuaciones vigentes y verifica la coincidencia. Último pase 29/10: **778 valores** actualizados (histórico Jotform con fórmulas viejas) → **822/822 coinciden, 0 discrepan**. En Supabase el equivalente ya hizo `recalc-huella.sql` (187/187).
 - Extracción de respuestas corregida: usar `prettyFormat` → `answer` (si la clave existe) → `''`. Nunca hacer fallback al objeto entero (generaba ruido tipo "huellaDe, 34, ...").
 - Servidor smoke-test OK: `/`, `/respuestas.html`, `/styles.css`, `/app.js`, `/respuestas.js`, `/datos/*.json` → 200.
 
@@ -99,6 +102,7 @@ El formulario usa tipos avanzados de Jotform; todo fue implementado a medida:
 - ✅ **29/10 — ecuaciones de huella ajustadas**: mate `120 → 30` (qid 54), qid 55 (papel) pasa de auto-referencia a `copias_mes × (1/dias_semana) × (1/4) × 10` y qid 69 (comedor) a `veces_comedor_semana × (1/dias_semana) × 2151.31`. Editado en `data/raw/properties.json` + `data/form-structure.json`, `site/` regenerado, `recalc-huella.sql` (recálculo **total**: pisa los valores viejos y completa las filas NULL) creado y todo commiteado/pusheado a GitHub (Pages re-build). ✅ **Recalc ejecutado el 29/10** en el SQL Editor: `total=187, con_diaria=187, con_mensual=187`.
 - ✅ **29/10 — local/docs sincronizados con las 187 de Supabase**: creado `scripts/fetch-supabase.mjs` (`npm run fetch-supabase` → `data/respuestas_supabase.json`, snapshot de la vista pública) y `build-dashboard.mjs` ahora prefiere ese snapshot sobre `data/submissions.json` (137, histórico Jotform) cuando no está atrasado. Dashboard regenerado: **187 respuestas · 2026-06-03 → 2026-10-29**. Tras correr `recalc-huella.sql` (29/10) se repitió el snapshot + build: verificado contra la vista que **187/187 filas coinciden con la fórmula nueva** (0 con la vieja), promedios **289,80 L/día** y **4.293,87 L/mes**.
 - ✅ **29/10 — q53 «¿Cuántos litros de mate o té…?» restringida a 13 valores**: `NUMBER_LIMITS['53'] = { min: 0, max: 3, step: 0.25 }` (antes min 0 / max 5 de Jotform sin `step`, es decir sólo enteros). Acepta 0 · 0,25 · 0,5 · 0,75 · 1 · 1,25 · 1,5 · 1,75 · 2 · 2,25 · 2,5 · 2,75 · 3 y rechaza 0,3, 1,1, 3,25, 5. `renderTextLike` ahora emite `step` + `data-hh-step` para cualquier `step` (antes solo `step="1"`), y `validateField` valida el múltiplo contra `min`/`max` aceptando coma decimal («0,25»), igual que el envío a Supabase. Verificado con simulación de los 13 valores + rechazos; q3 (enteros 0–10) intacto.
+- ✅ **29/10 — 3 cambios cerrados (override de ecuaciones, recalc local, caché + limpiezas)**: (1) `EQUATION_OVERRIDES` en `scripts/calculations.mjs` (qid 54/55/69) importado por `generate-site.mjs` → el site queda con las fórmulas nuevas aunque `data/` tenga las viejas de Jotform (test: `fetch:refresh` → `generate`, verificado); aplica a `HH_CONFIG.calculations` y a `site/datos/formulario.json`. (2) `scripts/recalc-local.mjs` (`npm run recalc-local`): recalcula 8/54/55/56/63/69 en `data/submissions.json` (778 valores) con verificación 822/822 y re-pisa el histórico; después `generate` + `export-supabase` re-sincronizados. (3) caché en `fetch-jotform.mjs` (`data/cache/jotform.json`, TTL 24 h; `npm run fetch` cache-hit / `npm run fetch:refresh` re-descarga) y `thanktext` limpiado (`cleanThankYou()`: sin «Nueva Encuesta» rota ni placeholders Jotform). Borrados `scripts/check-output.mjs` y `scripts/check-calcs.mjs` (la verificación ahora vive en `recalc-local.mjs`).
 
 ## Despliegue (22–23/10)
 
@@ -137,7 +141,7 @@ Detalles de comportamiento: con `dias_semana` vacío o 0, los componentes 55 y 6
 
 Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 copias: bloque `structure` y bloque `calculations` top-level) y `site/` regenerado con `npm run generate` (actualiza `window.HH_CONFIG` en `site/index.html` y `site/datos/formulario.json`).
 
-⚠️ **`npm run fetch` revierte estos cambios**: `data/` es gitignore y el fetch vuelve a bajar las ecuaciones de Jotform. Para que persistan hay que cambiar las mismas 3 fórmulas en el formulario original de Jotform, o agregar un override tipo `EQUATION_OVERRIDES` en `scripts/generate-site.mjs` (mismo criterio que `NUMBER_LIMITS`/`EXTRA_CONDITIONS`).
+✅ **Protegido contra `npm run fetch` (29/10)**: `data/` es gitignore y el fetch baja las ecuaciones viejas de Jotform (q54 mate ×120, q55 auto-referente, q69 ×4/30), pero `EQUATION_OVERRIDES` en `scripts/calculations.mjs` (importado por generate-site) las vuelve a imponer al generar — verificado: con `data/` en fórmulas viejas, `site/index.html` y `site/datos/formulario.json` quedaron con las nuevas. Mismo criterio que `NUMBER_LIMITS`/`EXTRA_CONDITIONS`. Si algún día se replican en el formulario original de Jotform, el override pasa a ser redundante (inofensivo).
 
 **Supabase (recálculo total, decisión del usuario 29/10)**: `recalc-huella.sql` (raíz, trackeada) recalcula `huella_diaria` y `huella_mensual` de **todas** las filas con las ecuaciones nuevas — pisa los valores viejos (calculados con mate ×120, q55 en 0 y comedor ×4/30) y también completa las filas que estaban NULL. **No** elimina ni renombra columnas: así la vista `respuestas_hh_public` del dashboard sigue funcionando y desaparecen los valores con error de cálculo. Idempotente; se ejecuta en el SQL Editor (la anon key solo puede INSERT). **Ejecutado el 29/10 en Supabase**: 187/187 filas recalculadas (verificación `total=187, con_diaria=187, con_mensual=187`); después se repitieron `npm run fetch-supabase && npm run dashboard`. Resultado real sobre las 187: promedios **289,80 L/día** y **4.293,87 L/mes** (el snapshot y el build embebido quedaron con esos valores; verificado que 187/187 coinciden con la fórmula nueva y 0 con la vieja).
 
@@ -164,18 +168,18 @@ Archivos tocados: `data/raw/properties.json`, `data/form-structure.json` (las 2 
 ## Pendientes / posibles mejoras
 
 - [x] ~~Feedback visual del usuario~~ — hecho el 19/10 (colores, marca de agua, sliders, botones).
-- [ ] Quitar `scripts/check-output.mjs` y `scripts/check-calcs.mjs` si ya no se necesitan (son tools de desarrollo).
+- [x] ~~Quitar `scripts/check-output.mjs` y `scripts/check-calcs.mjs`~~ — hecho 29/10: borrados; la verificación de ecuaciones ahora vive en `scripts/recalc-local.mjs` (pasada de recálculo + chequeo de coincidencia).
 - [x] ~~Evaluar publicación~~ — hecho 22/10: GitHub Pages en https://hh-unl.github.io/Encuesta_UsoDelAgua.UNL/. `site/respuestas.html` sigue sin publicar (404), pero la tabla individual **sí** se publica en `/dashboard/` por decisión del usuario.
 - [ ] `data/site-config.json` no creado; crear solo si el usuario quiere cambiar modo/colores.
-- [ ] Posible: cachear fetch sin re-descargar todo (ahora `npm run fetch` baja las 137 respuestas cada vez).
-- [ ] El formulario original tiene `thanktext` (página de agradecimiento Jotform) — se embebe y se muestra tras el envío exitoso a Supabase.
+- [x] ~~Posible: cachear fetch sin re-descargar todo~~ — hecho 29/10: `data/cache/jotform.json` (detalle + preguntas + propiedades + 137 respuestas crudas, TTL 24 h, `CACHE_TTL_HOURS` configurable). `npm run fetch` → cache hit sin llamadas a la API; `npm run fetch:refresh` → re-descarga y reescribe el cache. Si falla la API y hay cache, se usan las respuestas guardadas. `data/cache/` queda bajo el gitignore de `data/`.
+- [x] ~~El formulario original tiene `thanktext`…~~ — hecho 29/10 (ya estaba embebido: `HH_CONFIG.thankYou` desde `properties.thanktext` y `app.js` lo muestra tras el INSERT exitoso en Supabase, con fallback «¡Gracias! Tu respuesta fue registrada»). Mejora 29/10: `cleanThankYou()` en generate-site limpia el HTML de Jotform — saca los 5 bloques `nonEditableInvisable` («Nueva Encuesta» → `/261533323515046` roto acá, `{edit_link_v2}`, PDF, «View completed task», «undefined») y los atributos de editor (`contenteditable`/`data-mce-*`); queda icono + «Gracias por tu respuesta!» (651 chars, verificado en `site/index.html`).
 - [x] ~~23/10 envío Supabase~~ — hecho: política aplicada, key completa, envío real verificado en Table Editor, commit + push.
 - [x] ~~Dashboard lee solo el histórico local~~ — hecho 23/10: fetch en vivo desde la vista `respuestas_hh_public` con fallback al build (ver sección Dashboard).
 - [x] ~~Limpieza en Supabase: filas de prueba~~ — hecho 23/10: verificado que la vista no tiene filas posteriores al 12/10 (la fila `status='test'` y las respuestas de prueba de la web fueron borradas por el usuario); vistas las 134 finales.
 - [x] ~~Descuadre 134 vs 137~~ — resuelto 23/10: el usuario **borró a propósito 3 filas con errores de datos**; Supabase queda en 134 (vista) y el histórico local en 137. ⚠️ **No re-importar con `export-supabase`** sin revisar: el `ON CONFLICT DO NOTHING` no distinguiría filas borradas por error de las que faltan y **resucitaría** las 3 filas malas. Si algún día hace falta re-importar, filtrar antes esas submission_id en el SQL.
 - [x] ~~29/10 ejecutar `recalc-huella.sql`~~ — hecho 29/10: corrió sin errores (`total=187, con_diaria=187, con_mensual=187`) y luego se repitieron `fetch-supabase` + `dashboard` (187/187 con la fórmula nueva).
-- [ ] Replicar las 3 ecuaciones nuevas en Jotform **o** crear `EQUATION_OVERRIDES` en `scripts/generate-site.mjs`, para que `npm run fetch` no revierta los cambios del 29/10.
-- [ ] (opcional) Recalcular los campos 55/69/56/63 en `data/submissions.json` local para que `check-calcs.mjs` y `export-supabase` coincidan con las ecuaciones nuevas (el fallback del dashboard ya usa el snapshot de Supabase, no este archivo).
+- [x] ~~Replicar las 3 ecuaciones nuevas en Jotform **o** crear `EQUATION_OVERRIDES`…~~ — hecho 29/10: `EQUATION_OVERRIDES` en `scripts/calculations.mjs` (qid 54/55/69), aplicado por generate-site a `HH_CONFIG.calculations` y a `site/datos/formulario.json`. Test completo: `fetch:refresh` (datos locales con fórmulas viejas) → `generate` → site con fórmulas nuevas. Replica en Jotform sigue siendo opcional.
+- [x] ~~Recalcular los campos 55/69/56/63 en `data/submissions.json` local~~ — hecho 29/10: `npm run recalc-local` recalcula todos los cálculos (8/54/55/56/63/69) con las ecuaciones vigentes — **778 valores** cambiados, **822/822** verificados — y luego `npm run generate` + `export-supabase` quedaron sincronizados (ojo: el `ON CONFLICT DO NOTHING` de un re-import **no** pisa filas existentes; la advertencia de no re-importar sigue vigente).
 
 ## Notas técnicas para continuar
 

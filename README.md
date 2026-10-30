@@ -21,12 +21,14 @@ Conecta con la API de Jotform, extrae la **estructura** y las **respuestas** de 
 
 ```bash
 cp .env.example .env      # y edita con tus credenciales (Jotform + Supabase)
-npm run fetch             # descarga estructura + respuestas a data/
+npm run fetch             # descarga estructura + respuestas a data/ (usa un cache local de 24 h)
+npm run fetch:refresh     # ignora el cache y re-descarga todo desde la API
+npm run recalc-local      # recalcula los campos de cálculo de data/submissions.json y los verifica
 npm run generate          # genera la web en site/
 npm run serve             # previsualiza en http://localhost:8080
 ```
 
-`npm run build` ejecuta fetch + generate de una vez. `npm run generate` falla con un mensaje claro si faltan `SUPABASE_URL`/`SUPABASE_ANON_KEY` y el modo es `supabase`.
+`npm run build` ejecuta fetch + generate de una vez. `npm run generate` falla con un mensaje claro si faltan `SUPABASE_URL`/`SUPABASE_ANON_KEY` y el modo es `supabase`. Las ecuaciones/validaciones sobreescritas (si las hay) viven en `scripts/calculations.mjs` y `NUMBER_LIMITS`, y se aplican siempre al generar, aunque el JSON de `data/` tenga fórmulas viejas.
 
 > La carpeta `data/` incluye datos de ejemplo para que puedas probar
 > `npm run generate && npm run serve` antes de tener las credenciales.

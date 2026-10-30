@@ -4,7 +4,12 @@
  * y las guarda normalizadas en data/.
  *
  * Uso:
- *   node scripts/fetch-jotform.mjs
+ *   node scripts/fetch-jotform.mjs             usa el cache local si tiene <24 h
+ *   node scripts/fetch-jotform.mjs --refresh   ignora el cache y re-descarga
+ *   npm run fetch / npm run fetch:refresh      (atajos)
+ *
+ * Cache: data/cache/jotform.json (gitignored) con detalle + preguntas +
+ * propiedades + respuestas crudas. TTL configurable con CACHE_TTL_HOURS.
  *
  * Requiere .env con JOTFORM_API_KEY y JOTFORM_FORM_ID (ver .env.example)
  */
@@ -20,6 +25,11 @@ const API_BASE = 'https://api.jotform.com';
 const PAGE_SIZE = 100;
 const MAX_SUBMISSIONS = Number(process.env.MAX_SUBMISSIONS || 5000);
 const RATE_DELAY_MS = 120;
+// Cache local de la API (data/cache/jotform.json): evita re-descargar todo
+// cada vez. TTL por defecto 24 h; --refresh / --force lo ignoran.
+const CACHE_FILE = path.join(DATA_DIR, 'cache', 'jotform.json');
+const FORCE_REFRESH = process.argv.includes('--refresh') || process.argv.includes('--force');
+const CACHE_TTL_HOURS = Number(process.env.CACHE_TTL_HOURS ?? 24);
 
 loadEnvFile(path.join(ROOT, '.env'));
 
@@ -364,6 +374,25 @@ function normalizeSubmission(sub, questions) {
   };
 }
 
+function readCache() {
+  try {
+    const c = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    if (c && c.cached_at && Array.isArray(c.submissions)) return c;
+  } catch {
+    /* sin cache o ilegible */
+  }
+  return null;
+}
+
+function writeCache(payload) {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ cached_at: new Date().toISOString(), ...payload }), 'utf8');
+  } catch (e) {
+    console.warn(`  Aviso: no se pudo guardar el cache (${e.message})`);
+  }
+}
+
 async function fetchAllSubmissions() {
   const all = [];
   let offset = 0;
@@ -394,26 +423,47 @@ async function main() {
   console.log(`Conectando a Jotform… formulario ${formId}`);
   fs.mkdirSync(RAW_DIR, { recursive: true });
 
-  console.log('→ Descargando detalles del formulario');
-  const formRes = await apiGet(`/form/${formId}`);
-  const formRaw = formRes.content || {};
-  fs.writeFileSync(path.join(RAW_DIR, 'form.json'), JSON.stringify(formRaw, null, 2));
-  await sleep(RATE_DELAY_MS);
+  const cached = FORCE_REFRESH ? null : readCache();
+  const ttlMs = CACHE_TTL_HOURS * 3600 * 1000;
+  const fresh = !!(cached && Date.now() - Date.parse(cached.cached_at) < ttlMs);
 
-  console.log('→ Descargando preguntas');
-  const qRes = await apiGet(`/form/${formId}/questions`);
-  const questionsRaw = qRes.content || {};
-  fs.writeFileSync(path.join(RAW_DIR, 'questions.json'), JSON.stringify(questionsRaw, null, 2));
-  await sleep(RATE_DELAY_MS);
-
+  let formRaw = {};
+  let questionsRaw = {};
   let properties = {};
-  try {
-    console.log('→ Descargando propiedades');
-    const pRes = await apiGet(`/form/${formId}/properties`);
-    properties = pRes.content || {};
-    fs.writeFileSync(path.join(RAW_DIR, 'properties.json'), JSON.stringify(properties, null, 2));
-  } catch (e) {
-    console.warn(`  Aviso: no se pudieron leer propiedades (${e.message})`);
+  let rawSubs = null;
+
+  if (fresh) {
+    formRaw = cached.formRaw || {};
+    questionsRaw = cached.questionsRaw || {};
+    properties = cached.properties || {};
+    rawSubs = cached.submissions;
+    const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(cached.cached_at)) / 60000));
+    console.log(`→ Cache local de ${cached.cached_at} (${ageMin} min, ${rawSubs.length} respuestas): sin llamadas a la API`);
+    console.log('  · para volver a descargar todo: npm run fetch:refresh');
+  } else {
+    console.log('→ Descargando detalles del formulario');
+    const formRes = await apiGet(`/form/${formId}`);
+    formRaw = formRes.content || {};
+    await sleep(RATE_DELAY_MS);
+
+    console.log('→ Descargando preguntas');
+    const qRes = await apiGet(`/form/${formId}/questions`);
+    questionsRaw = qRes.content || {};
+    await sleep(RATE_DELAY_MS);
+
+    try {
+      console.log('→ Descargando propiedades');
+      const pRes = await apiGet(`/form/${formId}/properties`);
+      properties = pRes.content || {};
+    } catch (e) {
+      console.warn(`  Aviso: no se pudieron leer propiedades (${e.message})`);
+      properties = (cached && cached.properties) || {};
+    }
+    fs.writeFileSync(path.join(RAW_DIR, 'form.json'), JSON.stringify(formRaw, null, 2));
+    fs.writeFileSync(path.join(RAW_DIR, 'questions.json'), JSON.stringify(questionsRaw, null, 2));
+    if (Object.keys(properties).length) {
+      fs.writeFileSync(path.join(RAW_DIR, 'properties.json'), JSON.stringify(properties, null, 2));
+    }
   }
 
   const propertiesForPages = { ...(formRaw.properties || {}), ...properties };
@@ -466,13 +516,29 @@ async function main() {
   fs.writeFileSync(path.join(DATA_DIR, 'form-structure.json'), JSON.stringify(structure, null, 2));
   console.log(`✔ Estructura guardada: ${questions.length} campos, ${total} página(s)`);
 
-  console.log('→ Descargando respuestas');
+  if (fresh) {
+    console.log(`→ Respuestas desde el cache (${rawSubs.length})`);
+  } else {
+    console.log('→ Descargando respuestas');
+    try {
+      rawSubs = await fetchAllSubmissions();
+      writeCache({ formRaw, questionsRaw, properties, submissions: rawSubs });
+    } catch (e) {
+      console.warn(`  Aviso: no se pudieron descargar respuestas (${e.message})`);
+      if (cached && Array.isArray(cached.submissions) && cached.submissions.length) {
+        console.warn('  → me quedo con las respuestas del cache');
+        rawSubs = cached.submissions;
+      } else {
+        rawSubs = [];
+      }
+    }
+  }
+
   let submissions = [];
   try {
-    const rawSubs = await fetchAllSubmissions();
     submissions = rawSubs.map((s) => normalizeSubmission(s, questions));
   } catch (e) {
-    console.warn(`  Aviso: no se pudieron descargar respuestas (${e.message})`);
+    console.warn(`  Aviso: no se pudieron normalizar las respuestas (${e.message})`);
   }
   fs.writeFileSync(
     path.join(DATA_DIR, 'submissions.json'),

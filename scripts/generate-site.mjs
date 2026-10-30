@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COLUMNS } from './columns.mjs';
+import { applyEquationOverrides } from './calculations.mjs';
 import { supabaseConfig } from './env.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -136,6 +137,11 @@ const NUMBER_LIMITS = {
   '53': { min: 0, max: 3, step: 0.25 }, // «¿Cuántos litros de mate o té…?» → 0 · 0,25 · 0,5 · 0,75 · 1 … 3
 };
 
+// Ecuaciones sobreescritas (qid resultField → equation/operands); sobreviven a
+// re-fetch: Jotform todavía tiene las fórmulas viejas, así que sin este override
+// un `npm run fetch` + `npm run generate` revirtaría los cambios del 29/10.
+// Definición compartida: scripts/calculations.mjs (EQUATION_OVERRIDES).
+
 // Condiciones extra inyectadas (sobreviven a re-fetch)
 const EXTRA_CONDITIONS = [
   {
@@ -146,6 +152,42 @@ const EXTRA_CONDITIONS = [
     actions: [{ visibility: 'Show', field: '68', fields: [] }],
   },
 ];
+
+// Limpieza del thanktext de Jotform: saca el bloque de botones de Jotform
+// («Nueva Encuesta» → /261533323515046, {edit_link_v2}, «View completed task»),
+// que apuntan a Jotform y acá serían enlaces rotos, y los atributos de editor
+// (contenteditable / data-mce-*). Conserva icono + mensaje «Gracias por tu respuesta!».
+function cleanThankYou(html) {
+  if (!html) return '';
+  let out = String(html);
+  let start = out.indexOf('<div class="nonEditableInvisable');
+  while (start >= 0) {
+    let depth = 0;
+    let end = -1;
+    for (let i = start; i < out.length; ) {
+      const next = out.indexOf('<', i);
+      if (next < 0) break;
+      if (out.startsWith('<div', next)) {
+        depth++;
+        i = next + 4;
+      } else if (out.startsWith('</div>', next)) {
+        depth--;
+        i = next + 6;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      } else {
+        i = next + 1;
+      }
+    }
+    if (end > 0) out = out.slice(0, start) + out.slice(end);
+    else break;
+    start = out.indexOf('<div class="nonEditableInvisable');
+  }
+  out = out.replace(/\s+(?:contenteditable|data-mce-[a-z-]+)="[^"]*"/g, '');
+  return out.trim();
+}
 
 function renderTextLike(q, type) {
   const id = `f-${q.qid}`;
@@ -583,11 +625,11 @@ function buildIndexHtml() {
   const body = pages.map((p) => renderPage(p, pages.length)).join('\n');
 
   const hhConfig = {
-    calculations: structure.calculations || [],
+    calculations: applyEquationOverrides(structure.calculations),
     conditions: [...(structure.conditions || []), ...EXTRA_CONDITIONS],
     clearOnHide: !!form.clearOnHide,
     autoNext: !!form.autoNext,
-    thankYou: form.thankYou || '',
+    thankYou: cleanThankYou(form.thankYou || ''),
     columns: COLUMNS.map(({ qid, col, type }) => ({ qid, col, type })),
   };
   if (config.submitMode === 'supabase') {
@@ -792,7 +834,10 @@ if (config.showResponsesPage) {
   fs.writeFileSync(path.join(SITE_DIR, 'respuestas.js'), buildRespuestasJs());
 }
 
-fs.copyFileSync(structurePath, path.join(SITE_DIR, 'datos', 'formulario.json'));
+fs.writeFileSync(
+  path.join(SITE_DIR, 'datos', 'formulario.json'),
+  JSON.stringify({ ...structure, calculations: applyEquationOverrides(structure.calculations) }, null, 2)
+);
 fs.writeFileSync(
   path.join(SITE_DIR, 'datos', 'submissions.json'),
   JSON.stringify(submissionsData, null, 2)
