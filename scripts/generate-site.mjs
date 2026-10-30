@@ -133,6 +133,7 @@ function optionsHtml(q) {
 // Restricciones sobreescritas para números (qid → min/max/step); sobreviven a re-fetch
 const NUMBER_LIMITS = {
   '3': { min: 0, max: 10, step: 1 }, // «¿Cuántas veces por día utilizas el inodoro…?»
+  '53': { min: 0.25, max: 3, step: 0.25 }, // «¿Cuántos litros de mate o té…?» → 0,25 · 0,5 · 0,75 · 1 … 3
 };
 
 // Condiciones extra inyectadas (sobreviven a re-fetch)
@@ -155,7 +156,8 @@ function renderTextLike(q, type) {
     q.extra.placeholder ? attr('placeholder', q.extra.placeholder) : '',
     q.readonly ? ' readonly' : '',
     type === 'number' ? ' data-hh-numeric="1"' : '',
-    limits && limits.step === 1 ? ' step="1" data-hh-integer="1"' : '',
+    limits && limits.step === 1 ? ' data-hh-integer="1"' : '',
+    limits && limits.step ? attr('step', limits.step) + ` data-hh-step="${limits.step}"` : '',
     attr('min', min),
     attr('max', max),
   ].join('');

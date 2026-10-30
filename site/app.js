@@ -131,21 +131,39 @@
         return false;
       }
       if (first.type === 'number' || first.dataset.hhNumeric === '1') {
-        if (isNaN(Number(value))) {
+        var numVal = Number(String(value).replace(',', '.'));
+        if (isNaN(numVal)) {
           setError(first, 'Introduce un número válido.');
           return false;
         }
-        if (first.dataset.hhInteger === '1' && !Number.isInteger(Number(value))) {
+        if (first.dataset.hhInteger === '1' && !Number.isInteger(numVal)) {
           setError(first, 'Introduce un número entero.');
           return false;
         }
-        if (first.min !== '' && Number(value) < Number(first.min)) {
+        if (first.min !== '' && numVal < Number(first.min)) {
           setError(first, 'El valor mínimo es ' + first.min + '.');
           return false;
         }
-        if (first.max !== '' && Number(value) > Number(first.max)) {
+        if (first.max !== '' && numVal > Number(first.max)) {
           setError(first, 'El valor máximo es ' + first.max + '.');
           return false;
+        }
+        var step = Number(first.dataset.hhStep || 0);
+        if (step > 0 && first.min !== '') {
+          var steps = (numVal - Number(first.min)) / step;
+          if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+            setError(
+              first,
+              'El valor debe ser un múltiplo de ' +
+                String(step).replace('.', ',') +
+                ' entre ' +
+                first.min +
+                ' y ' +
+                first.max +
+                '.'
+            );
+            return false;
+          }
         }
       }
       if (first.type === 'url' && !/^https?:\/\/.+/i.test(value)) {
